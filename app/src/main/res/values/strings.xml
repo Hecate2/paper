@@ -91,5 +91,4 @@
     <string name="load_failed">打开失败：%s</string>
     <string name="save_failed">保存失败：%s</string>
     <string name="saved">已保存</string>
-    <string name="unsaved_quit_hint">未保存的修改在退出后将丢弃</string>
 </resources>
