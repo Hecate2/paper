@@ -27,16 +27,43 @@ public final class SearchEngine {
      */
     public static int[] findAll(String text, String query, boolean caseSensitive,
                                 boolean regex, boolean[] cancel) {
+        return findAll(text, query, caseSensitive, regex, false, cancel);
+    }
+
+    /**
+     * Finds all non-overlapping matches of query in text.
+     *
+     * @param wholeWord when true a match must not be adjacent to a word character
+     *                  (letters/digits/underscore, Unicode aware)
+     */
+    public static int[] findAll(String text, String query, boolean caseSensitive,
+                                boolean regex, boolean wholeWord, boolean[] cancel) {
         if (text == null || query == null || query.isEmpty()) {
             return new int[0];
         }
         if (regex) {
-            return findAllRegex(text, query, caseSensitive, cancel);
+            return findAllRegex(text, query, caseSensitive, wholeWord, cancel);
         }
-        return findAllPlain(text, query, caseSensitive, cancel);
+        return findAllPlain(text, query, caseSensitive, wholeWord, cancel);
     }
 
-    private static int[] findAllPlain(String text, String query, boolean caseSensitive, boolean[] cancel) {
+    /** True for characters that count as "inside a word" for whole-word matching. */
+    static boolean isWordChar(char c) {
+        return c == '_' || Character.isLetterOrDigit(c);
+    }
+
+    private static boolean boundaryOk(String text, int start, int end, boolean wholeWord) {
+        if (!wholeWord) {
+            return true;
+        }
+        if (start > 0 && isWordChar(text.charAt(start - 1))) {
+            return false;
+        }
+        return end >= text.length() || !isWordChar(text.charAt(end));
+    }
+
+    private static int[] findAllPlain(String text, String query, boolean caseSensitive,
+                                      boolean wholeWord, boolean[] cancel) {
         int[] starts = new int[64];
         int count = 0;
         if (caseSensitive) {
@@ -45,14 +72,17 @@ public final class SearchEngine {
                 if ((count & 1023) == 0 && isCancelled(cancel)) {
                     break;
                 }
-                if (count == starts.length) {
-                    starts = grow(starts, starts.length * 2);
+                int end = idx + query.length();
+                if (boundaryOk(text, idx, end, wholeWord)) {
+                    if (count == starts.length) {
+                        starts = grow(starts, starts.length * 2);
+                    }
+                    starts[count++] = idx;
+                    if (count >= MAX_RESULTS) {
+                        break;
+                    }
                 }
-                starts[count++] = idx;
-                if (count >= MAX_RESULTS) {
-                    break;
-                }
-                idx = text.indexOf(query, idx + query.length());
+                idx = text.indexOf(query, end);
             }
         } else {
             // Case-insensitive: scan a lowercased copy, verify hits against the original.
@@ -63,14 +93,16 @@ public final class SearchEngine {
                 if ((count & 1023) == 0 && isCancelled(cancel)) {
                     break;
                 }
-                if (text.regionMatches(true, idx, query, 0, query.length())) {
+                int end = idx + query.length();
+                if (boundaryOk(text, idx, end, wholeWord)
+                        && text.regionMatches(true, idx, query, 0, query.length())) {
                     if (count == starts.length) {
                         starts = grow(starts, starts.length * 2);
                     }
                     starts[count++] = idx;
-                }
-                if (count >= MAX_RESULTS) {
-                    break;
+                    if (count >= MAX_RESULTS) {
+                        break;
+                    }
                 }
                 idx = lowerText.indexOf(lowerQuery, idx + Math.max(1, lowerQuery.length()));
             }
@@ -78,8 +110,9 @@ public final class SearchEngine {
         return toPairs(starts, count, query.length());
     }
 
-    private static int[] findAllRegex(String text, String query, boolean caseSensitive, boolean[] cancel) {
-        Pattern pattern = tryCompile(query, caseSensitive);
+    private static int[] findAllRegex(String text, String query, boolean caseSensitive,
+                                      boolean wholeWord, boolean[] cancel) {
+        Pattern pattern = tryCompile(query, caseSensitive, wholeWord);
         if (pattern == null) {
             return new int[0];
         }
@@ -148,11 +181,11 @@ public final class SearchEngine {
 
     /** Replaces all regex matches honoring $1..$9 group references in replacement. */
     public static String replaceAllRegex(String text, String query, String replacement,
-                                         boolean caseSensitive) {
+                                         boolean caseSensitive, boolean wholeWord) {
         if (text == null || query == null || query.isEmpty()) {
             return text;
         }
-        Pattern pattern = tryCompile(query, caseSensitive);
+        Pattern pattern = tryCompile(query, caseSensitive, wholeWord);
         if (pattern == null) {
             return text;
         }
@@ -192,8 +225,9 @@ public final class SearchEngine {
      * Falls back to a literal replacement when the range is not an exact regex match.
      */
     public static String replaceCurrentRegex(String text, String query, int start, int end,
-                                             String replacement, boolean caseSensitive) {
-        Pattern pattern = tryCompile(query, caseSensitive);
+                                             String replacement, boolean caseSensitive,
+                                             boolean wholeWord) {
+        Pattern pattern = tryCompile(query, caseSensitive, wholeWord);
         if (pattern != null) {
             Matcher m = pattern.matcher(text);
             while (m.find()) {
@@ -212,11 +246,14 @@ public final class SearchEngine {
         return replaceRange(text, start, end, replacement);
     }
 
-    private static Pattern tryCompile(String query, boolean caseSensitive) {
+    private static Pattern tryCompile(String query, boolean caseSensitive, boolean wholeWord) {
         try {
-            int flags = Pattern.DOTALL
+            int flags = Pattern.DOTALL | Pattern.UNICODE_CHARACTER_CLASS
                     | (caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-            return Pattern.compile(query, flags);
+            // Whole-word for regex = Unicode-aware \b around the (non-capturing) user pattern,
+            // so group numbering for $1..$9 in replacements is preserved.
+            String src = wholeWord ? "\\b(?:" + query + ")\\b" : query;
+            return Pattern.compile(src, flags);
         } catch (Exception e) {
             return null;
         }

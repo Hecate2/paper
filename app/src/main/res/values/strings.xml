@@ -7,6 +7,8 @@
     <string name="menu_open">打开</string>
     <string name="menu_save">保存</string>
     <string name="menu_save_as">另存为</string>
+    <string name="menu_close">关闭文件</string>
+    <string name="menu_rename">重命名</string>
     <string name="menu_find">查找替换</string>
     <string name="menu_encoding">编码</string>
     <string name="menu_restore_backup">恢复备份</string>
@@ -20,7 +22,21 @@
     <string name="find_replace_all">全部替换</string>
     <string name="find_case">Aa</string>
     <string name="find_regex">.*</string>
+    <string name="find_word">全词</string>
     <string name="find_close">关闭</string>
+
+    <string name="rename_title">重命名</string>
+    <string name="rename_exists">同名文件已存在</string>
+    <string name="rename_failed">重命名失败：%s</string>
+    <string name="rename_only_saved">只有已保存的文件可以重命名</string>
+
+    <string name="close_title">关闭文件</string>
+    <string name="close_message">当前文件有未保存的修改</string>
+    <string name="close_save">保存并关闭</string>
+    <string name="close_discard">不保存</string>
+
+    <string name="save_conflict">这个文件已被其他程序修改。仍要覆盖吗？</string>
+    <string name="autosave_paused">文件已被外部修改，已暂停自动保存</string>
 
     <string name="save_dialog_title">保存文件</string>
     <string name="save_filename_hint">文件名（默认 .txt）</string>

@@ -132,19 +132,19 @@ public class SearchEngineTest {
 
     @Test
     public void replaceAllRegexWithGroups() {
-        String out = SearchEngine.replaceAllRegex("John Smith", "(\\w+) (\\w+)", "$2 $1", true);
+        String out = SearchEngine.replaceAllRegex("John Smith", "(\\w+) (\\w+)", "$2 $1", true, false);
         assertEquals("Smith John", out);
     }
 
     @Test
     public void replaceAllRegexKeepsUnmatchedText() {
-        String out = SearchEngine.replaceAllRegex("a1b2c", "[0-9]", "#", true);
+        String out = SearchEngine.replaceAllRegex("a1b2c", "[0-9]", "#", true, false);
         assertEquals("a#b#c", out);
     }
 
     @Test
     public void replaceAllRegexInvalidPatternReturnsOriginal() {
-        assertEquals("abc", SearchEngine.replaceAllRegex("abc", "[bad", "x", true));
+        assertEquals("abc", SearchEngine.replaceAllRegex("abc", "[bad", "x", true, false));
     }
 
     @Test
@@ -156,14 +156,14 @@ public class SearchEngineTest {
     @Test
     public void replaceCurrentRegexExpandsGroups() {
         String out = SearchEngine.replaceCurrentRegex("John Smith", "(\\w+) (\\w+)",
-                0, 10, "$2 $1", true);
+                0, 10, "$2 $1", true, false);
         assertEquals("Smith John", out);
     }
 
     @Test
     public void replaceCurrentRegexFallsBackToLiteralWhenRangeNotAMatch() {
         String out = SearchEngine.replaceCurrentRegex("hello world", "world",
-                0, 3, "X", true);
+                0, 3, "X", true, false);
         assertEquals("Xlo world", out);
     }
 
@@ -224,5 +224,77 @@ public class SearchEngineTest {
             idx = text.indexOf(needle, idx + needle.length());
         }
         return count;
+    }
+
+    // ---- whole word ----
+
+    @Test
+    public void wholeWordSkipsEmbeddedMatches() {
+        int[] r = SearchEngine.findAll("cat category cat", "cat", true, false, true, null);
+        // only the standalone "cat" at 0 and 13
+        assertEquals(4, r.length);
+        assertEquals(0, r[0]);
+        assertEquals(13, r[2]);
+    }
+
+    @Test
+    public void wholeWordMatchesAtStringEdges() {
+        int[] r = SearchEngine.findAll("cat", "cat", true, false, true, null);
+        assertArrayEquals(new int[]{0, 3}, r);
+    }
+
+    @Test
+    public void wholeWordTreatsUnderscoreAndDigitsAsWordChars() {
+        assertEquals(0, SearchEngine.findAll("cat_x cat1", "cat", true, false, true, null).length);
+        // without whole word both are found
+        assertEquals(4, SearchEngine.findAll("cat_x cat1", "cat", true, false, false, null).length);
+    }
+
+    @Test
+    public void wholeWordCaseInsensitive() {
+        int[] r = SearchEngine.findAll("Cat cat CATS", "cat", false, false, true, null);
+        assertEquals(4, r.length);
+        assertEquals(0, r[0]);
+        assertEquals(4, r[2]);
+    }
+
+    @Test
+    public void wholeWordWorksForCjkText() {
+        int[] r = SearchEngine.findAll("中文 中文测试 中文", "中文", true, false, true, null);
+        assertEquals(4, r.length);
+        assertEquals(0, r[0]);
+        assertEquals(8, r[2]);
+    }
+
+    @Test
+    public void wholeWordRegexUsesBoundariesButKeepsGroups() {
+        int[] r = SearchEngine.findAll("abc abcd abc", "ab.", true, true, true, null);
+        assertEquals(4, r.length);
+        assertEquals(0, r[0]);
+        assertEquals(9, r[2]);
+        String out = SearchEngine.replaceAllRegex("abc abcd abc", "(ab.)", "<$1>", true, true);
+        assertEquals("<abc> abcd <abc>", out);
+    }
+
+    @Test
+    public void wholeWordRegexCaseInsensitive() {
+        int[] r = SearchEngine.findAll("Foo foo FOOD", "foo", false, true, true, null);
+        assertEquals(4, r.length);
+        assertEquals(0, r[0]);
+        assertEquals(4, r[2]);
+    }
+
+    @Test
+    public void wholeWordReplaceAllLiteralOnlyTouchesWholeWords() {
+        int[] m = SearchEngine.findAll("cat category cat", "cat", true, false, true, null);
+        assertEquals("dog category dog",
+                SearchEngine.replaceAllLiteral("cat category cat", m, "dog"));
+    }
+
+    @Test
+    public void unicodeRegexClassesIncludeCjk() {
+        // UNICODE_CHARACTER_CLASS makes \w cover CJK, so a regex search still works
+        int[] r = SearchEngine.findAll("中文", "\\w+", true, true, false, null);
+        assertArrayEquals(new int[]{0, 2}, r);
     }
 }

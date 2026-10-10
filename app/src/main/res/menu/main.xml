@@ -13,18 +13,28 @@
     <item
         android:id="@+id/action_save"
         android:icon="@drawable/ic_save"
-        android:showAsAction="ifRoom"
+        android:showAsAction="always"
         android:title="@string/menu_save" />
+    <item
+        android:id="@+id/action_close"
+        android:icon="@drawable/ic_close"
+        android:showAsAction="ifRoom"
+        android:title="@string/menu_close" />
+    <item
+        android:id="@+id/action_rename"
+        android:icon="@drawable/ic_rename"
+        android:showAsAction="ifRoom"
+        android:title="@string/menu_rename" />
+    <item
+        android:id="@+id/action_find"
+        android:icon="@drawable/ic_search"
+        android:showAsAction="always"
+        android:title="@string/menu_find" />
     <item
         android:id="@+id/action_save_as"
         android:icon="@drawable/ic_save_as"
         android:showAsAction="ifRoom"
         android:title="@string/menu_save_as" />
-    <item
-        android:id="@+id/action_find"
-        android:icon="@drawable/ic_search"
-        android:showAsAction="ifRoom"
-        android:title="@string/menu_find" />
     <item
         android:id="@+id/action_encoding"
         android:icon="@drawable/ic_language"

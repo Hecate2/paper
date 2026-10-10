@@ -86,6 +86,13 @@
                     android:text="@string/find_regex"
                     android:textSize="12sp" />
 
+                <CheckBox
+                    android:id="@+id/findWord"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/find_word"
+                    android:textSize="12sp" />
+
                 <ImageButton
                     android:id="@+id/findClose"
                     style="?android:attr/borderlessButtonStyle"

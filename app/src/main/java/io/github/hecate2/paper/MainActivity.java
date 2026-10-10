@@ -73,6 +73,13 @@ public class MainActivity extends Activity {
     private boolean previewTruncated = false;
     private boolean dirty = false;
     private boolean suppressDirty = false;
+    /** mtime of the on-disk file as we last saw it; 0 = unknown (URI/scratch). */
+    private long lastKnownMtime = 0;
+    private boolean conflictNotified = false;
+    /** Run after the next successful save (used by "保存并关闭"). Cleared on cancel. */
+    private Runnable pendingAfterSave;
+    /** Share/VIEW intent deferred until the user resolved an unsaved-changes prompt. */
+    private Intent pendingShare;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -81,6 +88,11 @@ public class MainActivity extends Activity {
     // find/replace
     private int[] matches = new int[0];
     private int matchIndex = -1;
+    /** Query + flags that produced {@link #matches}; used to detect stale results. */
+    private String matchQuery = "";
+    private boolean matchCase;
+    private boolean matchRegex;
+    private boolean matchWord;
     private final Runnable findDebounce = this::runFindNow;
 
     // autosave
@@ -119,10 +131,12 @@ public class MainActivity extends Activity {
 
             @Override
             public void afterTextChanged(Editable s) {
-                if (!suppressDirty && mode != Mode.SCRATCH) {
+                if (!suppressDirty && !dirty) {
                     dirty = true;
-                } else if (!suppressDirty) {
-                    dirty = true;
+                    // Anchor the autosave countdown at the first edit so the configured
+                    // interval is honoured (otherwise the very next tick saves at once).
+                    lastSaveAt = System.currentTimeMillis();
+                    updateTitle(); // show the unsaved marker as soon as it becomes true
                 }
                 main.removeCallbacks(findDebounce);
                 main.postDelayed(findDebounce, 150);
@@ -172,31 +186,61 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Returns true when the intent carried content (VIEW/SEND) that was handled. */
+    /**
+     * Returns true when the intent carried content (VIEW/SEND) that was handled
+     * (possibly deferred behind an "unsaved changes" confirmation).
+     */
     private boolean handleShareIntent(Intent intent) {
         if (intent == null) {
             return false;
         }
+        if (!carriesContent(intent)) {
+            return false;
+        }
+        if (dirty) {
+            pendingShare = intent;
+            confirmDiscardThen(this::consumePendingShare);
+            return true;
+        }
+        consumeShare(intent);
+        return true;
+    }
+
+    private static boolean carriesContent(Intent intent) {
         String action = intent.getAction();
         if (Intent.ACTION_SEND.equals(action)) {
+            return intent.getStringExtra(Intent.EXTRA_TEXT) != null
+                    || intent.getParcelableExtra(Intent.EXTRA_STREAM) != null;
+        }
+        return Intent.ACTION_VIEW.equals(action) && intent.getData() != null;
+    }
+
+    private void consumePendingShare() {
+        Intent i = pendingShare;
+        pendingShare = null;
+        if (i != null) {
+            consumeShare(i);
+        }
+    }
+
+    private void consumeShare(Intent intent) {
+        String action = intent.getAction();
+        if (Intent.ACTION_SEND.equals(action)) {
+            Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (stream != null) {
+                openUri(stream);
+                return;
+            }
             String text = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (text != null) {
                 resetToScratch(text);
                 Toast.makeText(this, "已粘贴分享的文本（未保存）", Toast.LENGTH_SHORT).show();
-                return true;
             }
-            Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-            if (stream != null) {
-                openUri(stream);
-                return true;
-            }
-            return false;
+            return;
         }
         if (Intent.ACTION_VIEW.equals(action) && intent.getData() != null) {
             openUri(intent.getData());
-            return true;
         }
-        return false;
     }
 
     private void resetToScratch(String initialText) {
@@ -206,6 +250,9 @@ public class MainActivity extends Activity {
         readOnly = false;
         previewTruncated = false;
         dirty = false;
+        lastKnownMtime = 0;
+        conflictNotified = false;
+        pendingAfterSave = null;
         encoding = EncodingDetector.UTF_8;
         showEditor();
         suppressDirty = true;
@@ -213,7 +260,17 @@ public class MainActivity extends Activity {
         suppressDirty = false;
         editor.setSelection(editor.getText().length());
         banner.setVisibility(View.GONE);
+        clearMatches();
         updateTitle();
+    }
+
+    /** Parent directory of a path, or "" when the path has no separator. */
+    private static String parentOf(String path) {
+        if (path == null) {
+            return "";
+        }
+        int i = path.lastIndexOf('/');
+        return i > 0 ? path.substring(0, i) : "";
     }
 
     // ---------------------------------------------------------------- opening
@@ -249,11 +306,14 @@ public class MainActivity extends Activity {
                 String charset = EncodingDetector.resolveCharset(prefs.defaultEncoding(), data);
                 String text = EncodingDetector.stripBom(EncodingDetector.decode(data, charset), charset);
                 int[] lineStarts = buildLineStarts(text);
+                long mtime = f.lastModified();
                 main.post(() -> {
                     hideProgress();
                     applyLoadedText(text, lineStarts, path, null, charset, tier, binary, truncated);
+                    lastKnownMtime = mtime;
+                    conflictNotified = false;
                     prefs.recordOpened(path, false);
-                    prefs.recordDirectory(path.substring(0, path.lastIndexOf('/')));
+                    prefs.recordDirectory(parentOf(path));
                 });
             } catch (Exception e) {
                 main.post(() -> {
@@ -266,6 +326,16 @@ public class MainActivity extends Activity {
     }
 
     private void openUri(Uri uri) {
+        // A plain file:// URI points at a real path we are allowed to write, so open it in
+        // FILE mode and let the user save in place instead of forcing "save as".
+        // openPath() also owns the "file is gone" fallback, so always route there.
+        if ("file".equals(uri.getScheme())) {
+            String p = uri.getPath();
+            if (p != null && !p.isEmpty()) {
+                openPath(p);
+                return;
+            }
+        }
         showProgress(getString(R.string.loading), true);
         io.execute(() -> {
             try {
@@ -367,39 +437,154 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- saving
 
+    /** True when the on-disk file changed underneath us since we loaded/saved it. */
+    private boolean externallyModified(File target) {
+        return target.isFile() && lastKnownMtime > 0 && target.lastModified() != lastKnownMtime;
+    }
+
     private void actionSave() {
+        // The continuation belongs to this save attempt only. Cancelling any dialog must
+        // not leave it armed for an unrelated later save.
+        Runnable after = pendingAfterSave;
+        pendingAfterSave = null;
         if (mode == Mode.FILE && !readOnly) {
-            doSaveTo(new File(filePath));
+            File target = new File(filePath);
+            if (externallyModified(target)) {
+                new AlertDialog.Builder(this)
+                        .setMessage(R.string.save_conflict)
+                        .setPositiveButton(R.string.save_ok, (d, w) -> writeTo(target, true, after))
+                        .setNegativeButton(R.string.save_cancel, null)
+                        .show();
+                return;
+            }
+            writeTo(target, true, after);
         } else if (mode == Mode.URI && !readOnly) {
-            showSaveDialog(prefs.lastDirectory(), SaveNames.defaultFileName(System.currentTimeMillis()));
+            showSaveDialog(prefs.lastDirectory(), SaveNames.defaultFileName(System.currentTimeMillis()), after);
         } else if (mode == Mode.SCRATCH) {
-            showSaveDialog(prefs.lastDirectory(), SaveNames.defaultFileName(System.currentTimeMillis()));
+            showSaveDialog(prefs.lastDirectory(), SaveNames.defaultFileName(System.currentTimeMillis()), after);
         } else {
             Toast.makeText(this, "只读模式，无法保存", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void actionSaveAs() {
-        if (readOnly && mode != Mode.SCRATCH) {
-            // Saving a read-only/previewed file is forbidden for the original;
-            // "save as" of a truncated preview would silently lose data.
-            if (previewTruncated) {
-                Toast.makeText(this, "预览内容不完整，另存为已禁用", Toast.LENGTH_SHORT).show();
-                return;
-            }
+        if (readOnly) {
+            // Re-encoding a read-only view (binary / truncated preview) would silently
+            // corrupt or truncate data, so "save as" is refused as well.
+            Toast.makeText(this, "只读模式，无法另存为", Toast.LENGTH_SHORT).show();
+            return;
         }
         String name = mode == Mode.FILE && filePath != null
                 ? new File(filePath).getName()
                 : SaveNames.defaultFileName(System.currentTimeMillis());
-        showSaveDialog(prefs.lastDirectory(), name);
+        showSaveDialog(prefs.lastDirectory(), name, null);
+    }
+
+    /** One-tap "close the open file": confirm when dirty, then fall back to an empty draft. */
+    private void actionClose() {
+        if (mode == Mode.SCRATCH && !dirty && editor.getText().length() == 0) {
+            return;
+        }
+        confirmDiscardThen(this::doClose);
+    }
+
+    private void doClose() {
+        // Remember "nothing open" so the LAST_FILE startup mode does not reopen it.
+        prefs.recordOpened(null, true);
+        resetToScratch(null);
+    }
+
+    /** Asks about unsaved changes before running {@code next}; no-op when clean. */
+    private void confirmDiscardThen(Runnable next) {
+        if (!dirty) {
+            next.run();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.close_title)
+                .setMessage(R.string.close_message)
+                .setPositiveButton(R.string.close_save, (d, w) -> {
+                    pendingAfterSave = next;
+                    actionSave();
+                })
+                .setNegativeButton(R.string.close_discard, (d, w) -> next.run())
+                .setNeutralButton(R.string.save_cancel, null)
+                .show();
+    }
+
+    private void actionRename() {
+        if (mode != Mode.FILE || filePath == null) {
+            Toast.makeText(this, R.string.rename_only_saved, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (readOnly) {
+            Toast.makeText(this, "只读模式，无法重命名", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final File src = new File(filePath);
+        View v = getLayoutInflater().inflate(R.layout.dialog_save, null, false);
+        EditText nameInput = v.findViewById(R.id.filenameInput);
+        TextView dirView = v.findViewById(R.id.dirView);
+        nameInput.setText(src.getName());
+        nameInput.setSelection(nameInput.getText().length());
+        dirView.setText(parentOf(filePath));
+        v.findViewById(R.id.btnBrowse).setVisibility(View.GONE);
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.rename_title)
+                .setView(v)
+                .setPositiveButton(R.string.save_ok, (d, w) -> {
+                    String name = SaveNames.sanitize(nameInput.getText().toString());
+                    if (name.isEmpty()) {
+                        Toast.makeText(this, R.string.save_empty_name, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (name.lastIndexOf('.') <= 0) {
+                        name = SaveNames.ensureTxtExtension(name);
+                    }
+                    File dst = new File(src.getParentFile(), name);
+                    if (dst.getAbsolutePath().equals(src.getAbsolutePath())) {
+                        return;
+                    }
+                    if (dst.exists()) {
+                        Toast.makeText(this, R.string.rename_exists, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    final File target = dst;
+                    io.execute(() -> {
+                        boolean ok = src.renameTo(target);
+                        if (ok) {
+                            // Keep the backup in sync with the renamed file.
+                            File oldBak = new File(src.getPath() + AtomicFileWriter.BAK_SUFFIX);
+                            if (oldBak.isFile()) {
+                                //noinspection ResultOfMethodCallIgnored
+                                oldBak.renameTo(new File(target.getPath() + AtomicFileWriter.BAK_SUFFIX));
+                            }
+                        }
+                        main.post(() -> {
+                            if (!ok) {
+                                Toast.makeText(this, getString(R.string.rename_failed, target.getName()),
+                                        Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            filePath = target.getAbsolutePath();
+                            lastKnownMtime = target.lastModified();
+                            prefs.recordOpened(filePath, false);
+                            updateTitle();
+                        });
+                    });
+                })
+                .setNegativeButton(R.string.save_cancel, null)
+                .show();
     }
 
     private String pendingDir;
     private String pendingName;
 
-    private void showSaveDialog(String dir, String name) {
+    private void showSaveDialog(String dir, String name, Runnable after) {
         pendingDir = dir == null ? "" : dir;
         pendingName = name;
+        pendingAfterSave = after;
         if (pendingDir.isEmpty()) {
             // "New file must choose a directory": no history yet -> force browser first.
             Toast.makeText(this, R.string.save_no_dir, Toast.LENGTH_SHORT).show();
@@ -410,6 +595,10 @@ public class MainActivity extends Activity {
     }
 
     private void renderSaveDialog() {
+        // Captured by this dialog instance only: cancelling must not leave a pending
+        // "then close" action armed for a later, unrelated save.
+        final Runnable after = pendingAfterSave;
+        pendingAfterSave = null;
         View v = getLayoutInflater().inflate(R.layout.dialog_save, null, false);
         EditText nameInput = v.findViewById(R.id.filenameInput);
         TextView dirView = v.findViewById(R.id.dirView);
@@ -441,47 +630,72 @@ public class MainActivity extends Activity {
                 new AlertDialog.Builder(this)
                         .setMessage(R.string.save_overwrite)
                         .setPositiveButton(R.string.save_ok,
-                                (d2, w) -> { dlg.dismiss(); commitSave(target); })
+                                (d2, w) -> { dlg.dismiss(); commitSave(target, after); })
                         .setNegativeButton(R.string.save_cancel, null)
                         .show();
                 return;
             }
             dlg.dismiss();
-            commitSave(target);
+            commitSave(target, after);
         }));
         v.findViewById(R.id.btnBrowse).setOnClickListener(b -> {
             pendingName = nameInput.getText().toString();
+            // Hand the continuation to the next dialog instance rendered after the picker.
+            pendingAfterSave = after;
             dlg.dismiss();
             startBrowser(pendingDir, true);
         });
         dlg.show();
     }
 
-    private void commitSave(File target) {
+    private void commitSave(File target, Runnable after) {
+        writeTo(target, true, after);
+    }
+
+    /**
+     * Single write path for every save (manual, save-as, autosave). Runs on the io
+     * executor and only touches views again from the main thread.
+     */
+    private void writeTo(File target, boolean userInitiated, Runnable after) {
         String content = editor.getText().toString();
         String charset = encoding;
-        showProgress(getString(R.string.loading_saving), false);
+        if (userInitiated) {
+            showProgress(getString(R.string.loading_saving), false);
+        }
         io.execute(() -> {
             try {
                 AtomicFileWriter.write(target, EncodingDetector.encode(content, charset));
+                long mtime = target.lastModified();
                 main.post(() -> {
-                    hideProgress();
+                    if (userInitiated) {
+                        hideProgress();
+                    }
                     mode = Mode.FILE;
                     filePath = target.getAbsolutePath();
                     contentUri = null;
                     dirty = false;
                     readOnly = false;
+                    lastKnownMtime = mtime;
+                    conflictNotified = false;
                     banner.setVisibility(View.GONE);
                     prefs.recordOpened(filePath, false);
-                    prefs.recordDirectory(target.getParent());
-                    Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show();
+                    prefs.recordDirectory(parentOf(filePath));
+                    if (userInitiated) {
+                        Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show();
+                    }
                     updateTitle();
+                    if (after != null) {
+                        after.run();
+                    }
                 });
             } catch (Exception e) {
                 main.post(() -> {
-                    hideProgress();
-                    Toast.makeText(this, getString(R.string.save_failed, String.valueOf(e.getMessage())),
-                            Toast.LENGTH_LONG).show();
+                    if (userInitiated) {
+                        hideProgress();
+                        Toast.makeText(this,
+                                getString(R.string.save_failed, String.valueOf(e.getMessage())),
+                                Toast.LENGTH_LONG).show();
+                    }
                 });
             }
         });
@@ -493,30 +707,24 @@ public class MainActivity extends Activity {
             return;
         }
         long now = System.currentTimeMillis();
+        if (lastSaveAt == 0) {
+            lastSaveAt = now; // no anchor yet: start the countdown now
+            return;
+        }
         if (now - lastSaveAt < interval * 1000L) {
             return;
         }
         lastSaveAt = now;
-        doSaveTo(new File(filePath));
-    }
-
-    private void doSaveTo(File target) {
-        String content = editor.getText().toString();
-        String charset = encoding;
-        io.execute(() -> {
-            try {
-                AtomicFileWriter.write(target, EncodingDetector.encode(content, charset));
-                main.post(() -> {
-                    dirty = false;
-                    prefs.recordOpened(target.getAbsolutePath(), false);
-                    updateTitle();
-                });
-            } catch (Exception e) {
-                main.post(() -> Toast.makeText(this,
-                        getString(R.string.save_failed, String.valueOf(e.getMessage())),
-                        Toast.LENGTH_LONG).show());
+        File target = new File(filePath);
+        if (externallyModified(target)) {
+            // Never silently clobber a file another app just changed.
+            if (!conflictNotified) {
+                conflictNotified = true;
+                Toast.makeText(this, R.string.autosave_paused, Toast.LENGTH_LONG).show();
             }
-        });
+            return;
+        }
+        writeTo(target, false, null);
     }
 
     private void restoreBackup() {
@@ -568,33 +776,65 @@ public class MainActivity extends Activity {
         }
         String query = findInput.getText().toString();
         if (query.isEmpty()) {
-            matches = new int[0];
-            matchIndex = -1;
-            findCount.setText("");
-            clearMatchVisuals();
+            clearMatches();
             return;
         }
-        boolean caseSensitive = ((android.widget.CheckBox) findViewById(R.id.findCase)).isChecked();
-        boolean regex = ((android.widget.CheckBox) findViewById(R.id.findRegex)).isChecked();
+        final boolean caseSensitive = findCaseBox().isChecked();
+        final boolean regex = findRegexBox().isChecked();
+        final boolean wholeWord = findWordBox().isChecked();
         String text = currentText();
-        // Stale results are dropped by the query equality check in the callback.
+        // Stale results are dropped by the query/flags equality check in the callback.
         io.execute(() -> {
-            int[] result = SearchEngine.findAll(text, query, caseSensitive, regex, null);
+            int[] result = SearchEngine.findAll(text, query, caseSensitive, regex, wholeWord, null);
             main.post(() -> {
-                if (!query.equals(findInput.getText().toString())) {
+                if (!query.equals(findInput.getText().toString())
+                        || caseSensitive != findCaseBox().isChecked()
+                        || regex != findRegexBox().isChecked()
+                        || wholeWord != findWordBox().isChecked()) {
                     return; // stale result
                 }
                 matches = result;
+                matchQuery = query;
+                matchCase = caseSensitive;
+                matchRegex = regex;
+                matchWord = wholeWord;
                 matchIndex = matches.length > 0 ? 0 : -1;
-                findCount.setText(matches.length > 0
-                        ? (matchIndex + 1) + "/" + matches.length
-                        : "0/" + matches.length);
+                findCount.setText((matches.length > 0 ? matchIndex + 1 : 0) + "/" + (matches.length / 2));
                 showMatchVisuals();
                 if (matchIndex >= 0) {
                     gotoMatch(matchIndex);
                 }
             });
         });
+    }
+
+    private android.widget.CheckBox findCaseBox() {
+        return findViewById(R.id.findCase);
+    }
+
+    private android.widget.CheckBox findRegexBox() {
+        return findViewById(R.id.findRegex);
+    }
+
+    private android.widget.CheckBox findWordBox() {
+        return findViewById(R.id.findWord);
+    }
+
+    /** Recomputes matches synchronously when the cached ones are stale (used before replacing). */
+    private void refreshMatchesIfStale() {
+        String query = findInput.getText().toString();
+        boolean cs = findCaseBox().isChecked();
+        boolean rx = findRegexBox().isChecked();
+        boolean ww = findWordBox().isChecked();
+        if (query.equals(matchQuery) && cs == matchCase && rx == matchRegex && ww == matchWord) {
+            return;
+        }
+        matches = SearchEngine.findAll(editor.getText().toString(), query, cs, rx, ww, null);
+        matchQuery = query;
+        matchCase = cs;
+        matchRegex = rx;
+        matchWord = ww;
+        matchIndex = matches.length > 0 ? 0 : -1;
     }
 
     private String currentText() {
@@ -607,6 +847,7 @@ public class MainActivity extends Activity {
     private void clearMatches() {
         matches = new int[0];
         matchIndex = -1;
+        matchQuery = "\u0000"; // sentinel: forces a refresh before any replace
         if (findCount != null) {
             findCount.setText("");
         }
@@ -657,8 +898,9 @@ public class MainActivity extends Activity {
         if (matches.length == 0) {
             return;
         }
-        matchIndex = (index + matches.length) % matches.length;
-        findCount.setText((matchIndex + 1) + "/" + matches.length);
+        int total = matches.length / 2;
+        matchIndex = (index + total) % total;
+        findCount.setText((matchIndex + 1) + "/" + total);
         int start = matches[matchIndex * 2];
         int end = matches[matchIndex * 2 + 1];
         showMatchVisuals();
@@ -682,18 +924,17 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "只读模式，无法替换", Toast.LENGTH_SHORT).show();
             return;
         }
+        refreshMatchesIfStale();
         if (matchIndex < 0 || matchIndex * 2 + 1 >= matches.length) {
             return;
         }
         String query = findInput.getText().toString();
         String repl = replaceInput.getText().toString();
-        boolean regex = ((android.widget.CheckBox) findViewById(R.id.findRegex)).isChecked();
-        boolean caseSensitive = ((android.widget.CheckBox) findViewById(R.id.findCase)).isChecked();
         String text = editor.getText().toString();
         int start = matches[matchIndex * 2];
         int end = matches[matchIndex * 2 + 1];
-        String newText = regex
-                ? SearchEngine.replaceCurrentRegex(text, query, start, end, repl, caseSensitive)
+        String newText = matchRegex
+                ? SearchEngine.replaceCurrentRegex(text, query, start, end, repl, matchCase, matchWord)
                 : SearchEngine.replaceRange(text, start, end, repl);
         setEditorTextPreservingCaret(newText, Math.min(start + repl.length(), newText.length()));
         runFindNow();
@@ -705,12 +946,14 @@ public class MainActivity extends Activity {
             return;
         }
         String query = findInput.getText().toString();
+        if (query.isEmpty()) {
+            return;
+        }
+        refreshMatchesIfStale();
         String repl = replaceInput.getText().toString();
-        boolean regex = ((android.widget.CheckBox) findViewById(R.id.findRegex)).isChecked();
-        boolean caseSensitive = ((android.widget.CheckBox) findViewById(R.id.findCase)).isChecked();
         String text = editor.getText().toString();
-        String newText = regex
-                ? SearchEngine.replaceAllRegex(text, query, repl, caseSensitive)
+        String newText = matchRegex
+                ? SearchEngine.replaceAllRegex(text, query, repl, matchCase, matchWord)
                 : SearchEngine.replaceAllLiteral(text, matches, repl);
         if (newText.equals(text)) {
             return;
@@ -751,6 +994,10 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null) {
+            if (requestCode == REQ_PICK_DIR) {
+                // Directory picking aborted: drop any "save then close" continuation too.
+                pendingAfterSave = null;
+            }
             return;
         }
         String path = data.getStringExtra(BrowserActivity.EXTRA_PATH);
@@ -758,7 +1005,6 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == REQ_OPEN) {
-            prefs.recordDirectory(path.substring(0, path.lastIndexOf('/') + 1).replaceAll("/$", ""));
             openPath(path);
         } else if (requestCode == REQ_PICK_DIR) {
             prefs.recordDirectory(path);
@@ -772,8 +1018,11 @@ public class MainActivity extends Activity {
     }
 
     private void applyEditorSettings() {
+        // Re-styling must never be mistaken for a user edit.
+        suppressDirty = true;
         editor.applyStyle(prefs.fontSizeSp(), prefs.wordWrap());
         editor.setShowLineNumbers(prefs.showLineNumbers());
+        suppressDirty = false;
         if (viewer.getVisibility() == View.VISIBLE) {
             viewer.setFontSizeSp(prefs.fontSizeSp());
             viewer.setShowLineNumbers(prefs.showLineNumbers());
@@ -800,9 +1049,13 @@ public class MainActivity extends Activity {
         }
         MenuItem save = menu.findItem(R.id.action_save);
         MenuItem saveAs = menu.findItem(R.id.action_save_as);
-        boolean canEdit = !readOnly || mode == Mode.SCRATCH;
-        save.setEnabled(canEdit);
-        saveAs.setEnabled(mode != Mode.SCRATCH || !readOnly);
+        MenuItem rename = menu.findItem(R.id.action_rename);
+        MenuItem close = menu.findItem(R.id.action_close);
+        boolean canWrite = !readOnly;
+        save.setEnabled(canWrite);
+        saveAs.setEnabled(canWrite);
+        rename.setEnabled(canWrite && mode == Mode.FILE);
+        close.setEnabled(mode != Mode.SCRATCH || dirty || editor.getText().length() > 0);
         menu.findItem(R.id.action_restore_backup).setEnabled(mode == Mode.FILE);
         return super.onPrepareOptionsMenu(menu);
     }
@@ -815,15 +1068,23 @@ public class MainActivity extends Activity {
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_new) {
-            resetToScratch(null);
+            confirmDiscardThen(() -> resetToScratch(null));
             return true;
         }
         if (id == R.id.action_open) {
-            startBrowser(prefs.lastDirectory(), false);
+            confirmDiscardThen(() -> startBrowser(prefs.lastDirectory(), false));
             return true;
         }
         if (id == R.id.action_save) {
             actionSave();
+            return true;
+        }
+        if (id == R.id.action_close) {
+            actionClose();
+            return true;
+        }
+        if (id == R.id.action_rename) {
+            actionRename();
             return true;
         }
         if (id == R.id.action_save_as) {
@@ -856,6 +1117,15 @@ public class MainActivity extends Activity {
             updateTitle();
             return;
         }
+        if (dirty) {
+            // Unsaved edits exist: re-interpret the in-memory text instead of re-reading
+            // the file, which would silently throw the user's changes away.
+            byte[] raw = EncodingDetector.encode(currentText(), encoding);
+            String charset = EncodingDetector.isAuto(chosen) ? EncodingDetector.detect(raw) : chosen;
+            applyReDecodedText(EncodingDetector.stripBom(EncodingDetector.decode(raw, charset), charset),
+                    charset);
+            return;
+        }
         // Re-decode from source with the chosen charset.
         String finalChosen = chosen;
         showProgress("重新解码…", true);
@@ -879,21 +1149,9 @@ public class MainActivity extends Activity {
                 String charset = EncodingDetector.isAuto(finalChosen)
                         ? EncodingDetector.detect(data) : finalChosen;
                 String text = EncodingDetector.stripBom(EncodingDetector.decode(data, charset), charset);
-                int[] lineStarts = buildLineStarts(text);
                 main.post(() -> {
                     hideProgress();
-                    encoding = charset;
-                    boolean useEditor = !readOnly;
-                    if (useEditor) {
-                        suppressDirty = true;
-                        editor.setText(text);
-                        editor.setSelection(0);
-                        suppressDirty = false;
-                    } else {
-                        viewer.setContent(text, lineStarts, prefs.showLineNumbers());
-                    }
-                    clearMatches();
-                    updateTitle();
+                    applyReDecodedText(text, charset);
                 });
             } catch (Exception e) {
                 main.post(() -> {
@@ -903,6 +1161,21 @@ public class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    /** Shows re-decoded text without marking the document dirty. */
+    private void applyReDecodedText(String text, String charset) {
+        encoding = charset;
+        suppressDirty = true;
+        if (editor.getVisibility() == View.VISIBLE) {
+            editor.setText(text);
+            editor.setSelection(0);
+        } else {
+            viewer.setContent(text, buildLineStarts(text), prefs.showLineNumbers());
+        }
+        suppressDirty = false;
+        clearMatches();
+        updateTitle();
     }
 
     private void updateTitle() {
@@ -938,10 +1211,9 @@ public class MainActivity extends Activity {
         findViewById(R.id.findClose).setOnClickListener(v -> toggleFindBar());
         findViewById(R.id.replaceOne).setOnClickListener(v -> replaceCurrent());
         findViewById(R.id.replaceAll).setOnClickListener(v -> replaceAll());
-        ((android.widget.CheckBox) findViewById(R.id.findCase))
-                .setOnCheckedChangeListener((b, c) -> runFindNow());
-        ((android.widget.CheckBox) findViewById(R.id.findRegex))
-                .setOnCheckedChangeListener((b, c) -> runFindNow());
+        findCaseBox().setOnCheckedChangeListener((b, c) -> runFindNow());
+        findRegexBox().setOnCheckedChangeListener((b, c) -> runFindNow());
+        findWordBox().setOnCheckedChangeListener((b, c) -> runFindNow());
         findInput.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -1065,5 +1337,26 @@ public class MainActivity extends Activity {
         super.onDestroy();
         main.removeCallbacksAndMessages(null);
         io.shutdownNow();
+    }
+
+    /** Back closes the find bar first, then guards unsaved changes. */
+    @Override
+    public void onBackPressed() {
+        if (findBar.getVisibility() == View.VISIBLE) {
+            toggleFindBar();
+            return;
+        }
+        if (dirty) {
+            confirmDiscardThen(this::finish);
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    /** Rotation etc. no longer recreates the activity, so re-apply display settings here. */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyEditorSettings();
     }
 }
