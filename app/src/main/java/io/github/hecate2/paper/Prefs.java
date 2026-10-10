@@ -20,6 +20,8 @@ public final class Prefs {
     public static final String KEY_SHOW_LINE_NUMBERS = "showLineNumbers";
     public static final String KEY_WORD_WRAP = "wordWrap";
     public static final String KEY_DEFAULT_ENCODING = "defaultEncoding";
+    public static final String KEY_BROWSER_SORT = "browserSort";
+    public static final String KEY_BROWSER_SORT_DESC = "browserSortDesc";
 
     public static final int DEFAULT_FONT_SIZE = 16;
 
@@ -116,5 +118,24 @@ public final class Prefs {
 
     public void setDefaultEncoding(String charsetName) {
         sp.edit().putString(KEY_DEFAULT_ENCODING, charsetName).apply();
+    }
+
+    // ---- file browser ----
+
+    /** One of "name" / "size" / "date" / "type". */
+    public String browserSort() {
+        return sp.getString(KEY_BROWSER_SORT, "name");
+    }
+
+    public void setBrowserSort(String field) {
+        sp.edit().putString(KEY_BROWSER_SORT, field).apply();
+    }
+
+    public boolean browserSortDesc() {
+        return sp.getBoolean(KEY_BROWSER_SORT_DESC, false);
+    }
+
+    public void setBrowserSortDesc(boolean desc) {
+        sp.edit().putBoolean(KEY_BROWSER_SORT_DESC, desc).apply();
     }
 }

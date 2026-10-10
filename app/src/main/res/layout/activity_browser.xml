@@ -4,41 +4,86 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- Path bar. Turns amber while a search is active so the state is unmissable. -->
     <TextView
         android:id="@+id/pathView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#FFF5F5F5"
-        android:padding="10dp"
+        android:padding="8dp"
         android:textColor="#333333"
         android:textSize="13sp"
         android:fontFamily="monospace" />
 
+    <!-- One compact toolbar row: up, sort field, sort direction, pick-dir (folder
+         picking only), search box, clear search. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="2dp"
+        android:paddingEnd="2dp">
 
         <ImageButton
             android:id="@+id/btnUp"
             style="?android:attr/borderlessButtonStyle"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_margin="4dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:contentDescription="@string/browser_up"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_arrow_upward" />
 
         <Button
-            android:id="@+id/btnPickDir"
+            android:id="@+id/btnSort"
             style="?android:attr/buttonBarButtonStyle"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_margin="4dp"
-            android:drawableStart="@drawable/ic_check"
-            android:drawablePadding="6dp"
-            android:text="@string/browser_pick_dir"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:textSize="13sp"
+            android:text="@string/browser_sort_name" />
+
+        <ImageButton
+            android:id="@+id/btnSortDir"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/browser_sort_asc"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_chevron_up" />
+
+        <ImageButton
+            android:id="@+id/btnPickDir"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/browser_pick_dir"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_check"
+            android:visibility="gone" />
+
+        <EditText
+            android:id="@+id/searchInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="48dp"
+            android:hint="@string/browser_search_hint"
+            android:inputType="text"
+            android:imeOptions="actionSearch"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+
+        <ImageButton
+            android:id="@+id/btnSearchClear"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/find_close"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_close"
             android:visibility="gone" />
     </LinearLayout>
 
