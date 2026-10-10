@@ -2,8 +2,11 @@ package io.github.hecate2.paper;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.RadioGroup;
 import android.widget.SeekBar;
 import android.widget.Spinner;
@@ -20,10 +23,8 @@ public class SettingsActivity extends Activity {
 
     private Prefs prefs;
 
-    private static final int[] AUTOSAVE_VALUES = {0, 5, 10, 30, 60, 300};
-    private static final String[] AUTOSAVE_LABELS = {
-            "关闭", "5 秒", "10 秒", "30 秒", "1 分钟", "5 分钟"
-    };
+    /** Upper bound for the user-entered autosave interval (1 hour). */
+    private static final int MAX_AUTOSAVE_SEC = 3600;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,21 +52,33 @@ public class SettingsActivity extends Activity {
             }
         });
 
-        // --- autosave interval ---
-        Spinner autosave = findViewById(R.id.autosaveSpinner);
-        autosave.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, AUTOSAVE_LABELS));
-        int interval = prefs.autosaveIntervalSec();
-        int idx = 2; // default 10s
-        for (int i = 0; i < AUTOSAVE_VALUES.length; i++) {
-            if (AUTOSAVE_VALUES[i] == interval) {
-                idx = i;
-                break;
+        // --- autosave interval (any number of seconds; 0 = off) ---
+        EditText autosave = findViewById(R.id.autosaveInput);
+        autosave.setText(String.valueOf(prefs.autosaveIntervalSec()));
+        autosave.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
-        }
-        autosave.setSelection(idx);
-        autosave.setOnItemSelectedListener(new SimpleItemSelectedListener(i ->
-                prefs.setAutosaveIntervalSec(AUTOSAVE_VALUES[i])));
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                String t = s.toString().trim();
+                if (t.isEmpty()) {
+                    return; // mid-edit; keep the last stored value
+                }
+                long v;
+                try {
+                    v = Long.parseLong(t);
+                } catch (NumberFormatException e) {
+                    return;
+                }
+                prefs.setAutosaveIntervalSec((int) Math.max(0, Math.min(MAX_AUTOSAVE_SEC, v)));
+            }
+        });
 
         // --- font size ---
         SeekBar font = findViewById(R.id.fontSeek);
