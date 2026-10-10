@@ -27,10 +27,15 @@ export const USER_CHOICES: string[] = [AUTO, UTF_8, GBK, GB18030, BIG5, 'UTF-16'
 
 const SNIFF_BYTES: number = 8192;
 
-/** 平台编解码器注入点：鸿蒙侧用 util 实现，Node 侧用全局 TextDecoder 实现。 */
+/** 平台编解码器注入点：鸿蒙侧用 util 实现，Node 单测用全局 TextDecoder 实现。 */
 export interface TextCodecs {
   decode(bytes: Uint8Array, charsetName: string): string;
   encode(text: string, charsetName: string): Uint8Array;
+  /**
+   * 严格解码：非法序列必须抛错（用于“能否解码”判定）。
+   * 鸿蒙侧经 util.TextDecoder(fatal:true)，Node 侧经全局 TextDecoder(fatal:true)。
+   */
+  strictDecode(bytes: Uint8Array, charsetName: string): void;
 }
 
 /** 嗅探前 SNIFF_BYTES 是否含 NUL（含则判二进制，与安卓版同）。 */
@@ -50,8 +55,8 @@ export function resolveCharset(
   data: Uint8Array,
   codecs?: TextCodecs
 ): string {
-  if (!isAuto(preference) && isValidCharsetName(preference as string)) {
-    return preference as string;
+  if (preference !== null && !isAuto(preference) && isValidCharsetName(preference)) {
+    return preference;
   }
   return detect(data, codecs);
 }
@@ -85,19 +90,7 @@ export function decode(bytes: Uint8Array, charsetName: string | null, codecs?: T
   if (codecs !== undefined && codecs !== null) {
     return codecs.decode(bytes, cs);
   }
-  const Ctor = textDecoderCtor();
-  if (Ctor !== null) {
-    try {
-      return new Ctor(toDecoderLabel(cs), { fatal: false }).decode(bytes);
-    } catch (e) {
-      try {
-        return new Ctor('utf-8', { fatal: false }).decode(bytes);
-      } catch (e2) {
-        return '';
-      }
-    }
-  }
-  // 无任何平台解码器时仅能原样返回 ASCII 子集
+  // 无平台解码器时仅能原样返回 ASCII 子集（鸿蒙真机恒传入 codecs，走不到这里）。
   return asciiFallback(bytes);
 }
 
@@ -110,27 +103,28 @@ export function decode(bytes: Uint8Array, charsetName: string | null, codecs?: T
  */
 export function encode(text: string, charsetName: string | null, codecs?: TextCodecs): Uint8Array {
   const src: string = text == null ? '' : text;
-  if (isAuto(charsetName) || charsetName === UTF_8) {
+  const name: string = charsetName === null ? '' : charsetName;
+  if (name === '' || isAuto(name) || name === UTF_8) {
     return encodeUtf8(src);
   }
-  if (charsetName === LATIN_1) {
+  if (name === LATIN_1) {
     return encodeLatin1(src);
   }
-  if (charsetName === UTF_16LE) {
+  if (name === UTF_16LE) {
     return encodeUtf16(src, true, false);
   }
-  if (charsetName === UTF_16BE) {
+  if (name === UTF_16BE) {
     return encodeUtf16(src, false, false);
   }
-  if (charsetName === 'UTF-16') {
+  if (name === 'UTF-16') {
     // 与 Java Charset UTF-16 一致：BOM(FE FF) + 大端。
     return encodeUtf16(src, false, true);
   }
   if (codecs !== undefined && codecs !== null) {
-    return codecs.encode(src, charsetName as string);
+    return codecs.encode(src, name);
   }
   throw new Error(
-    '当前运行环境缺少 ' + (charsetName as string) + ' 编码器（鸿蒙真机由 util.TextEncoder 提供）'
+    '当前运行环境缺少 ' + name + ' 编码器（鸿蒙真机由 util.TextEncoder 提供）'
   );
 }
 
@@ -150,25 +144,13 @@ export function stripBom(text: string, charsetName: string | null): string {
   return text;
 }
 
-/** 编码名在本运行环境是否合法可用。 */
+/** 编码名在本运行环境是否合法可用（显式支持表；足够覆盖全部用户选项）。 */
 export function isValidCharsetName(name: string | null): boolean {
   if (name == null || name.length === 0) {
     return false;
   }
   const known: string[] = [UTF_8, GBK, GB18030, BIG5, UTF_16LE, UTF_16BE, LATIN_1, 'UTF-16', AUTO];
-  if (known.indexOf(name) >= 0) {
-    return true;
-  }
-  const Ctor = textDecoderCtor();
-  if (Ctor === null) {
-    return false;
-  }
-  try {
-    new Ctor(name, { fatal: true });
-    return true;
-  } catch (e) {
-    return false;
-  }
+  return known.indexOf(name) >= 0;
 }
 
 export function isAuto(preference: string | null): boolean {
@@ -263,50 +245,15 @@ export function isValidUtf8(data: Uint8Array): boolean {
 function decodesStrictlyAs(data: Uint8Array, charsetName: string, codecs?: TextCodecs): boolean {
   if (codecs !== undefined && codecs !== null) {
     try {
-      // 平台 codecs.decode 是非严格的；严格校验走全局 TextDecoder（若可用）。
-      codecs.decode(data, charsetName);
+      codecs.strictDecode(data, charsetName);
+      return true;
     } catch (e) {
       return false;
     }
   }
-  const Ctor = textDecoderCtor();
-  if (Ctor === null) {
-    // 运行环境没有该解码器时：GB18030 几乎能覆盖全部字节序列，按可解处理，
-    // 交给后续 decode(非严格) 兜底，行为与安卓“GB18030 回退”一致。
-    return charsetName === GB18030;
-  }
-  try {
-    new Ctor(toDecoderLabel(charsetName), { fatal: true }).decode(data);
-    return true;
-  } catch (e) {
-    return charsetName === GB18030;
-  }
-}
-
-/**
- * 取全局 TextDecoder 构造器（Node/浏览器有；鸿蒙 ArkTS 运行时没有，
- * 那里一律走注入的 TextCodecs）。经 globalThis 取，避免 ArkTS
- * 编译期“找不到名字 TextDecoder”报错。
- */
-interface GlobalDecoder {
-  decode(bytes: Uint8Array): string;
-}
-
-interface GlobalDecoderCtor {
-  new (label?: string, options?: object): GlobalDecoder;
-}
-
-function textDecoderCtor(): GlobalDecoderCtor | null {
-  try {
-    const g = globalThis as unknown as Record<string, unknown>;
-    const c: unknown = g['TextDecoder'];
-    if (typeof c === 'function') {
-      return c as unknown as GlobalDecoderCtor;
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
+  // 无严格校验器时：GB18030 几乎能覆盖全部字节序列，按可解处理，
+  // 交给后续 decode(非严格) 兜底，行为与安卓“GB18030 回退”一致。
+  return charsetName === GB18030;
 }
 
 /** 无解码器时的最后兜底：ASCII 原样，其余字节变为替换符。 */
@@ -320,7 +267,7 @@ function asciiFallback(bytes: Uint8Array): string {
 
 /** "UTF-16" 伪选项按 BOM 落到具体端序（无 BOM 时与 Java 一致取大端）。 */
 function normalizeForData(charsetName: string | null, data: Uint8Array): string {
-  if (isAuto(charsetName)) {
+  if (charsetName === null || charsetName.length === 0 || charsetName === AUTO) {
     return UTF_8;
   }
   if ('UTF-16' === charsetName) {
@@ -328,31 +275,6 @@ function normalizeForData(charsetName: string | null, data: Uint8Array): string 
       return UTF_16LE;
     }
     return UTF_16BE;
-  }
-  return charsetName as string;
-}
-
-function toDecoderLabel(charsetName: string): string {
-  if (charsetName === UTF_8 || isAuto(charsetName)) {
-    return 'utf-8';
-  }
-  if (charsetName === GBK) {
-    return 'gbk';
-  }
-  if (charsetName === GB18030) {
-    return 'gb18030';
-  }
-  if (charsetName === BIG5) {
-    return 'big5';
-  }
-  if (charsetName === UTF_16LE) {
-    return 'utf-16le';
-  }
-  if (charsetName === UTF_16BE) {
-    return 'utf-16be';
-  }
-  if (charsetName === LATIN_1) {
-    return 'iso-8859-1';
   }
   return charsetName;
 }

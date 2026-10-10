@@ -65,7 +65,7 @@ export async function write(fs: AtomicFs, target: string, data: Uint8Array): Pro
     } catch (ignored) {
       // 清理失败不掩盖原始错误
     }
-    throw e;
+    throw new Error('atomic write failed: ' + String(e));
   }
 }
 

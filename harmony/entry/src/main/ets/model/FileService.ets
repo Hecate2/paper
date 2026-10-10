@@ -112,7 +112,7 @@ export class FileService {
 
   /** 只读 [offset, offset+length)（头部预览/嗅探用）。 */
   async readRange(path: string, offset: number, length: number): Promise<Uint8Array> {
-    const fd: number = await fs.open(path, fs.OpenMode.READ_ONLY);
+    const file = await fs.open(path, fs.OpenMode.READ_ONLY);
     try {
       const chunks: Uint8Array[] = [];
       let pos: number = offset;
@@ -120,7 +120,7 @@ export class FileService {
       while (remaining > 0) {
         const n: number = Math.min(remaining, CHUNK);
         const ab: ArrayBuffer = new ArrayBuffer(n);
-        const got: number = await fs.read(fd, ab, { offset: pos, length: n });
+        const got: number = await fs.read(file.fd, ab, { offset: pos, length: n });
         if (got <= 0) {
           break;
         }
@@ -131,7 +131,7 @@ export class FileService {
       return concatBytes(chunks);
     } finally {
       try {
-        await fs.close(fd);
+        await fs.close(file.fd);
       } catch (e) {
         // ignore
       }
@@ -163,7 +163,9 @@ export class FileService {
   /** 尽力为 Picker URI 申请持久化授权（记住上次打开的文件用），失败返回 false。 */
   async persistPermission(uri: string): Promise<boolean> {
     try {
-      await fileShare.persistPermission([uri], fileShare.OperationMode.READ_MODE);
+      await fileShare.persistPermission([
+        { uri: uri, operationMode: fileShare.OperationMode.READ_MODE }
+      ]);
       return true;
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'persistPermission failed: %{public}s', String(e));
@@ -173,25 +175,25 @@ export class FileService {
 
   /** 写字节到 Picker save() 返回的 URI（覆盖）。 */
   async writeUri(uri: string, data: Uint8Array): Promise<void> {
-    const fd: number = await fs.open(uri, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
+    const file = await fs.open(uri, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
     try {
       let off: number = 0;
       while (off < data.length) {
         const ab: ArrayBuffer = copyToBuffer(data, off, Math.min(off + CHUNK, data.length));
-        const w: number = await fs.write(fd, ab);
+        const w: number = await fs.write(file.fd, ab);
         if (w <= 0) {
           throw new Error('write returned 0');
         }
         off += w;
       }
       try {
-        await fs.sync(uri);
+        await fs.fsync(file.fd);
       } catch (e) {
-        // 部分 URI 不支持 sync，忽略
+        // 部分 URI 不支持 fsync，忽略
       }
     } finally {
       try {
-        await fs.close(fd);
+        await fs.close(file.fd);
       } catch (e) {
         // ignore
       }
@@ -202,10 +204,7 @@ export class FileService {
 /** core.AtomicFs 的 fs 实现（沙箱路径用；Picker URI 走 writeUri）。 */
 class FsAtomic implements AtomicFs {
   async ensureParentDir(path: string): Promise<void> {
-    const parent: string = parentOf(path);
-    if (parent !== '') {
-      await fs.mkdir(parent, true);
-    }
+    await mkdirRecursive(parentOf(path));
   }
 
   async writeFile(path: string, data: Uint8Array): Promise<void> {
@@ -214,24 +213,24 @@ class FsAtomic implements AtomicFs {
     } catch (e) {
       // 不存在则无需删除
     }
-    const fd: number = await fs.open(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
+    const file = await fs.open(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
     try {
       let off: number = 0;
       while (off < data.length) {
         const ab: ArrayBuffer = copyToBuffer(data, off, Math.min(off + CHUNK, data.length));
-        const w: number = await fs.write(fd, ab);
+        const w: number = await fs.write(file.fd, ab);
         if (w <= 0) {
           throw new Error('write returned 0');
         }
         off += w;
       }
       try {
-        await fs.sync(path);
+        await fs.fsync(file.fd);
       } catch (e) {
         // fsync 不可用时忽略（与安卓 getFD().sync() 尽力语义一致）
       }
     } finally {
-      await fs.close(fd);
+      await fs.close(file.fd);
     }
   }
 
@@ -280,7 +279,7 @@ class FsAtomic implements AtomicFs {
 }
 
 async function readRangeFd(path: string, offset: number, length: number): Promise<Uint8Array> {
-  const fd: number = await fs.open(path, fs.OpenMode.READ_ONLY);
+  const file = await fs.open(path, fs.OpenMode.READ_ONLY);
   try {
     const chunks: Uint8Array[] = [];
     let pos: number = offset;
@@ -288,7 +287,7 @@ async function readRangeFd(path: string, offset: number, length: number): Promis
     while (remaining > 0) {
       const n: number = Math.min(remaining, CHUNK);
       const ab: ArrayBuffer = new ArrayBuffer(n);
-      const got: number = await fs.read(fd, ab, { offset: pos, length: n });
+      const got: number = await fs.read(file.fd, ab, { offset: pos, length: n });
       if (got <= 0) {
         break;
       }
@@ -299,9 +298,30 @@ async function readRangeFd(path: string, offset: number, length: number): Promis
     return concatBytes(chunks);
   } finally {
     try {
-      await fs.close(fd);
+      await fs.close(file.fd);
     } catch (e) {
       // ignore
+    }
+  }
+}
+
+/** 递归建目录（新版 mkdir 只有单参，逐级建，存在即跳过）。 */
+async function mkdirRecursive(dir: string): Promise<void> {
+  if (dir === '' || dir === '/') {
+    return;
+  }
+  const parts: string[] = dir.split('/');
+  const absolute: boolean = dir.startsWith('/');
+  let cur: string = '';
+  for (const part of parts) {
+    if (part === '') {
+      continue;
+    }
+    cur = cur === '' ? (absolute ? '/' + part : part) : cur + '/' + part;
+    try {
+      await fs.mkdir(cur);
+    } catch (e) {
+      // 已存在或并发创建，忽略
     }
   }
 }

@@ -28,6 +28,19 @@ export class UtilTextCodecs implements TextCodecs {
     }
   }
 
+  strictDecode(bytes: Uint8Array, charsetName: string): void {
+    const labels: string[] = decoderLabels(charsetName);
+    for (const label of labels) {
+      try {
+        util.TextDecoder.create(label, { fatal: true, ignoreBOM: true }).decodeToString(bytes);
+        return;
+      } catch (e) {
+        // 换下一个候选
+      }
+    }
+    throw new Error('strict decode failed for ' + charsetName);
+  }
+
   encode(text: string, charsetName: string): Uint8Array {
     if (charsetName === 'UTF-16') {
       // 与 core.encode("UTF-16") 一致：BOM(FE FF) + 大端

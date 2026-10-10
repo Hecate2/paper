@@ -254,8 +254,12 @@ export function replaceAllLiteral(
 }
 
 /**
- * 展开替换串里的组引用。支持 $$ $& $` $' $1..$99 ${n} $<name>，
- * 无法识别的 $ 序列按字面保留（Java 版会直接抛异常导致闪退，见文件头注释）。
+ * 展开替换串里的组引用。支持 $$ $& $` $' $1..$99，
+ * 无法识别的 $ 序列（含 $<name> / ${name}）按字面保留。
+ * 说明：ArkTS 禁止索引签名与按下标访问字段，命名分组无法读取，
+ * 故 $<name> 在鸿蒙版按字面保留（Java 版支持 ${name}；数字组 $1..$9 不受影响，
+ * 本应用的全部单测只用数字组）。
+ * Java 版对非法 $ 序列直接抛异常导致闪退，这里做了防崩加固（见文件头注释）。
  */
 function expandReplacement(rep: string, m: RegExpExecArray, fullText: string): string {
   const s: number = m.index;
@@ -300,19 +304,9 @@ function expandReplacement(rep: string, m: RegExpExecArray, fullText: string): s
       }
       i = j;
     } else if (n === '{' || n === '<') {
-      const close: string = n === '{' ? '}' : '>';
-      const end: number = rep.indexOf(close, dollar + 2);
-      if (end < 0) {
-        out += '$' + n;
-        i = dollar + 2;
-      } else {
-        const name: string = rep.slice(dollar + 2, end);
-        const groups: Record<string, string | undefined> | undefined =
-          (m as RegExpExecArray & { groups?: Record<string, string | undefined> }).groups;
-        const v: string | undefined = groups?.[name];
-        out += v ?? '';
-        i = end + 1;
-      }
+      // 命名分组不可读（见函数注释）：连同 $ 按字面保留
+      out += '$' + n;
+      i = dollar + 2;
     } else {
       out += '$' + n;
       i = dollar + 2;

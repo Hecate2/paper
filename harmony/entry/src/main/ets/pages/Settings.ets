@@ -163,7 +163,7 @@ struct Settings {
         // 默认编码
         Column({ space: 6 }) {
           Text('默认编码').fontSize(15).fontWeight(FontWeight.Medium).width('100%');
-          Select(USER_CHOICES.map((c: string) => {
+          Select(USER_CHOICES.map((c: string): SelectOption => {
             return { value: labelOf(c) };
           }))
             .selected(this.encodingIdx)

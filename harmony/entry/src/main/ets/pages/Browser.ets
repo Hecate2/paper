@@ -23,8 +23,15 @@ import type { BrowserRow, SortField } from '../model/Types.ets';
 
 interface DisplayRow {
   kind: number; // 0=条目，1=空占位，2=搜索脚注
-  row: BrowserRow | null;
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtimeMs: number;
   text: string;
+}
+
+function entryRow(r: BrowserRow): DisplayRow {
+  return { kind: KIND_ENTRY, name: r.name, isDir: r.isDir, size: r.size, mtimeMs: r.mtimeMs, text: '' };
 }
 
 const KIND_ENTRY: number = 0;
@@ -148,25 +155,35 @@ struct Browser {
     const out: DisplayRow[] = [];
     if (!searching || badRegex) {
       for (const r of this.allRows) {
-        out.push({ kind: KIND_ENTRY, row: r, text: '' });
+        out.push(entryRow(r));
       }
     } else {
       const needle: string = q.toLowerCase();
       for (const r of this.allRows) {
         const hit: boolean = pat !== null ? pat.test(r.name) : r.name.toLowerCase().indexOf(needle) >= 0;
         if (hit) {
-          out.push({ kind: KIND_ENTRY, row: r, text: '' });
+          out.push(entryRow(r));
         }
       }
     }
     if (out.length === 0) {
       out.push({
         kind: KIND_EMPTY,
-        row: null,
+        name: '',
+        isDir: false,
+        size: 0,
+        mtimeMs: 0,
         text: searching ? '没有匹配「' + q + '」的项目' : '此目录为空'
       });
     } else if (searching && !badRegex) {
-      out.push({ kind: KIND_FOOTER, row: null, text: '— 正在搜索「' + q + '」（仅当前目录）—' });
+      out.push({
+        kind: KIND_FOOTER,
+        name: '',
+        isDir: false,
+        size: 0,
+        mtimeMs: 0,
+        text: '— 正在搜索「' + q + '」（仅当前目录）—'
+      });
     }
     this.rows = out;
   }
@@ -187,12 +204,11 @@ struct Browser {
   }
 
   private onRowClick(dr: DisplayRow): void {
-    if (dr.kind !== KIND_ENTRY || dr.row === null) {
+    if (dr.kind !== KIND_ENTRY) {
       return;
     }
-    const r: BrowserRow = dr.row;
-    const full: string = joinPath(this.currentDir, r.name);
-    if (r.isDir) {
+    const full: string = joinPath(this.currentDir, dr.name);
+    if (dr.isDir) {
       this.currentDir = full;
       this.query = '';
       this.reload();
@@ -283,7 +299,6 @@ struct Browser {
         });
         Select([{ value: '名称' }, { value: '大小' }, { value: '时间' }, { value: '类型' }])
           .selected(sortIndex(this.sortField))
-          .fontSize(13)
           .onSelect((index: number): void => {
             const fields: SortField[] = ['name', 'size', 'date', 'type'];
             this.sortField = fields[index];
@@ -319,16 +334,15 @@ struct Browser {
         List() {
           ForEach(this.rows, (dr: DisplayRow, index: number) => {
             ListItem() {
-              if (dr.kind === KIND_ENTRY && dr.row !== null) {
-                const r: BrowserRow = dr.row as BrowserRow;
+              if (dr.kind === KIND_ENTRY) {
                 Column({ space: 2 }) {
-                  Text((r.isDir ? '📁 ' : '') + r.name)
+                  Text((dr.isDir ? '📁 ' : '') + dr.name)
                     .fontSize(15)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .width('100%')
-                    .opacity(this.pickMode && !r.isDir ? 0.4 : 1);
-                  Text((r.isDir ? '文件夹' : formatSize(r.size)) + ' · ' + formatDate(r.mtimeMs))
+                    .opacity(this.pickMode && !dr.isDir ? 0.4 : 1);
+                  Text((dr.isDir ? '文件夹' : formatSize(dr.size)) + ' · ' + formatDate(dr.mtimeMs))
                     .fontSize(12)
                     .fontColor('#888888')
                     .width('100%');

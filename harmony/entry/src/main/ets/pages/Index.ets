@@ -1,4 +1,5 @@
-import { router, promptAction, TextAreaController, CustomDialogController } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { Prefs } from '../model/Prefs.ets';
 import { FileService } from '../model/FileService.ets';
@@ -335,7 +336,7 @@ struct Index {
     this.caretLine = 0;
     this.clearMatches();
     try {
-      this.ctl.caretOffset(this.content.length);
+      this.ctl.caretPosition(this.content.length);
     } catch (e) {
       // ignore
     }
@@ -386,7 +387,7 @@ struct Index {
           this.caretLine = restoreLine;
           setTimeout((): void => {
             try {
-              this.ctl.caretOffset(off);
+              this.ctl.caretPosition(off);
             } catch (e) {
               // ignore
             }
@@ -466,7 +467,7 @@ struct Index {
       this.caretLine = 0;
       setTimeout((): void => {
         try {
-          this.ctl.caretOffset(0);
+          this.ctl.caretPosition(0);
         } catch (e) {
           // ignore
         }
@@ -867,7 +868,7 @@ struct Index {
           const target: string = key;
           restoreFromBackup(fs.atomic(), target).then((): void => {
             this.openPath(target, -1);
-          }).catch((e): void => {
+          }).catch((e: BusinessError): void => {
             this.toast('保存失败：' + String(e));
           });
         }
@@ -962,7 +963,7 @@ struct Index {
     const end: number = this.matches[this.matchIndex * 2 + 1];
     this.caretLine = lineOf(buildLineStarts(this.content), start);
     try {
-      this.ctl.caretOffset(end);
+      this.ctl.caretPosition(end);
     } catch (e) {
       // ignore
     }
@@ -987,7 +988,7 @@ struct Index {
     this.content = newText;
     this.markDirty();
     try {
-      this.ctl.caretOffset(caret);
+      this.ctl.caretPosition(caret);
     } catch (e) {
       // ignore
     }
@@ -1013,7 +1014,7 @@ struct Index {
     this.content = newText;
     this.markDirty();
     try {
-      this.ctl.caretOffset(0);
+      this.ctl.caretPosition(0);
     } catch (e) {
       // ignore
     }
@@ -1327,11 +1328,10 @@ struct Index {
             Button('备份').fontSize(13).enabled(this.mode === 'file').onClick((): void => {
               this.restoreBackup();
             });
-            Select(USER_CHOICES.map((c: string) => {
+            Select(USER_CHOICES.map((c: string): SelectOption => {
               return { value: labelOf(c) };
             }))
               .selected(this.encodingIndex())
-              .fontSize(13)
               .onSelect((index: number): void => {
                 this.onEncodingChosen(USER_CHOICES[index]);
               });
