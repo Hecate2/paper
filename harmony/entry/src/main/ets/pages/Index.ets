@@ -1145,6 +1145,82 @@ struct Index {
             this.actionRename();
           });
 
+        // 工具栏（放顶部：对应安卓顶栏菜单；放底部会被输入法盖住）
+        Scroll() {
+          Row({ space: 8 }) {
+            Button('新建').fontSize(13).onClick((): void => {
+              if (this.dirty) {
+                this.confirmDiscardThen((): void => {
+                  this.resetToScratch(null);
+                });
+              } else {
+                this.resetToScratch(null);
+              }
+            });
+            Button('打开').fontSize(13).onClick((): void => {
+              const openBrowser: () => void = (): void => {
+                const p: Prefs | null = this.prefs;
+                AppStorage.setOrCreate('paperBrowserStart', p !== null ? p.lastDirectory() : '');
+                AppStorage.setOrCreate('paperBrowserMode', 'open');
+                router.pushUrl({ url: 'pages/Browser' });
+              };
+              if (this.dirty) {
+                this.confirmDiscardThen(openBrowser);
+              } else {
+                openBrowser();
+              }
+            });
+            Button('保存').fontSize(13).enabled(!this.readOnly).onClick((): void => {
+              this.actionSave();
+            });
+            Button('关闭').fontSize(13).onClick((): void => {
+              this.actionClose();
+            });
+            Button('重命名').fontSize(13)
+              .enabled(this.mode === 'file' && !this.readOnly)
+              .onClick((): void => {
+                this.actionRename();
+              });
+            Button('另存为').fontSize(13).enabled(!this.readOnly).onClick((): void => {
+              this.actionSaveAs();
+            });
+            Button('查找').fontSize(13).onClick((): void => {
+              this.findOpen = !this.findOpen;
+              if (this.findOpen && this.query !== '') {
+                this.runFindNow();
+              }
+              if (!this.findOpen) {
+                this.clearMatches();
+              }
+            });
+            Button('备份').fontSize(13).enabled(this.mode === 'file').onClick((): void => {
+              this.restoreBackup();
+            });
+            Select(USER_CHOICES.map((c: string): SelectOption => {
+              return { value: labelOf(c) };
+            }))
+              .selected(this.encodingIndex())
+              .onSelect((index: number): void => {
+                this.onEncodingChosen(USER_CHOICES[index]);
+              });
+            Button('设置').fontSize(13).onClick((): void => {
+              router.pushUrl({ url: 'pages/Settings' });
+            });
+          }.padding({ left: 8, right: 8, top: 6, bottom: 6 });
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .width('100%');
+
+        // 状态条（行号开关控制显隐；光标行在程序性移动后精确）
+        if (this.showNumbers) {
+          Text('共 ' + this.lineCount() + ' 行 · 第 ' + (this.caretLine + 1) + ' 行')
+            .fontSize(12)
+            .fontColor($r('app.color.gutter_text'))
+            .width('100%')
+            .textAlign(TextAlign.Center)
+            .padding(4);
+        }
+
         // 只读横幅
         if (this.banner !== '') {
           Text(this.banner)
@@ -1266,82 +1342,6 @@ struct Index {
               .padding(4);
           }
         }
-
-        // 状态条（行号开关控制显隐；光标行在程序性移动后精确）
-        if (this.showNumbers) {
-          Text('共 ' + this.lineCount() + ' 行 · 第 ' + (this.caretLine + 1) + ' 行')
-            .fontSize(12)
-            .fontColor($r('app.color.gutter_text'))
-            .width('100%')
-            .textAlign(TextAlign.Center)
-            .padding(4);
-        }
-
-        // 工具栏
-        Scroll() {
-          Row({ space: 8 }) {
-            Button('新建').fontSize(13).onClick((): void => {
-              if (this.dirty) {
-                this.confirmDiscardThen((): void => {
-                  this.resetToScratch(null);
-                });
-              } else {
-                this.resetToScratch(null);
-              }
-            });
-            Button('打开').fontSize(13).onClick((): void => {
-              const openBrowser: () => void = (): void => {
-                const p: Prefs | null = this.prefs;
-                AppStorage.setOrCreate('paperBrowserStart', p !== null ? p.lastDirectory() : '');
-                AppStorage.setOrCreate('paperBrowserMode', 'open');
-                router.pushUrl({ url: 'pages/Browser' });
-              };
-              if (this.dirty) {
-                this.confirmDiscardThen(openBrowser);
-              } else {
-                openBrowser();
-              }
-            });
-            Button('保存').fontSize(13).enabled(!this.readOnly).onClick((): void => {
-              this.actionSave();
-            });
-            Button('关闭').fontSize(13).onClick((): void => {
-              this.actionClose();
-            });
-            Button('重命名').fontSize(13)
-              .enabled(this.mode === 'file' && !this.readOnly)
-              .onClick((): void => {
-                this.actionRename();
-              });
-            Button('另存为').fontSize(13).enabled(!this.readOnly).onClick((): void => {
-              this.actionSaveAs();
-            });
-            Button('查找').fontSize(13).onClick((): void => {
-              this.findOpen = !this.findOpen;
-              if (this.findOpen && this.query !== '') {
-                this.runFindNow();
-              }
-              if (!this.findOpen) {
-                this.clearMatches();
-              }
-            });
-            Button('备份').fontSize(13).enabled(this.mode === 'file').onClick((): void => {
-              this.restoreBackup();
-            });
-            Select(USER_CHOICES.map((c: string): SelectOption => {
-              return { value: labelOf(c) };
-            }))
-              .selected(this.encodingIndex())
-              .onSelect((index: number): void => {
-                this.onEncodingChosen(USER_CHOICES[index]);
-              });
-            Button('设置').fontSize(13).onClick((): void => {
-              router.pushUrl({ url: 'pages/Settings' });
-            });
-          }.padding({ left: 8, right: 8, top: 6, bottom: 6 });
-        }
-        .scrollable(ScrollDirection.Horizontal)
-        .width('100%');
       }.width('100%').height('100%');
 
       if (this.loading) {

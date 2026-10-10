@@ -52,7 +52,15 @@ struct Settings {
   build() {
     Scroll() {
       Column({ space: 14 }) {
-        Text('设置').fontSize(20).fontWeight(FontWeight.Bold).margin({ top: 24 });
+        Row({ space: 12 }) {
+          Button('‹ 返回').fontSize(14).onClick((): void => {
+            router.back();
+          });
+          Text('设置').fontSize(20).fontWeight(FontWeight.Bold);
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 24 })
+        .alignItems(VerticalAlign.Center);
 
         // 启动时打开
         Column({ space: 6 }) {
@@ -176,10 +184,6 @@ struct Settings {
         .alignItems(HorizontalAlign.Start)
         .width('100%')
         .padding({ left: 16, right: 16 });
-
-        Button('返回').fontSize(14).margin({ top: 8, bottom: 32 }).onClick((): void => {
-          router.back();
-        });
       }
       .width('100%')
       .alignItems(HorizontalAlign.Center);

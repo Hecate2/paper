@@ -289,6 +289,9 @@ struct Browser {
 
       // 排序行
       Row({ space: 8 }) {
+        Button('‹ 返回').fontSize(13).onClick((): void => {
+          router.back();
+        });
         Button('⬆ 上级').fontSize(13).onClick((): void => {
           const i: number = this.currentDir.lastIndexOf('/');
           if (i > 0) {
@@ -367,10 +370,6 @@ struct Browser {
         .layoutWeight(1)
         .width('100%');
       }
-
-      Button('返回').fontSize(14).margin(12).onClick((): void => {
-        router.back();
-      });
     }.width('100%').height('100%');
   }
 }
