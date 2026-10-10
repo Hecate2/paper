@@ -85,16 +85,20 @@ export function decode(bytes: Uint8Array, charsetName: string | null, codecs?: T
   if (codecs !== undefined && codecs !== null) {
     return codecs.decode(bytes, cs);
   }
-  try {
-    const decoder: TextDecoder = new TextDecoder(toDecoderLabel(cs), { fatal: false });
-    return decoder.decode(bytes);
-  } catch (e) {
+  const Ctor = textDecoderCtor();
+  if (Ctor !== null) {
     try {
-      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-    } catch (e2) {
-      return '';
+      return new Ctor(toDecoderLabel(cs), { fatal: false }).decode(bytes);
+    } catch (e) {
+      try {
+        return new Ctor('utf-8', { fatal: false }).decode(bytes);
+      } catch (e2) {
+        return '';
+      }
     }
   }
+  // 无任何平台解码器时仅能原样返回 ASCII 子集
+  return asciiFallback(bytes);
 }
 
 /**
@@ -155,9 +159,12 @@ export function isValidCharsetName(name: string | null): boolean {
   if (known.indexOf(name) >= 0) {
     return true;
   }
+  const Ctor = textDecoderCtor();
+  if (Ctor === null) {
+    return false;
+  }
   try {
-    // eslint-disable-next-line no-new
-    new TextDecoder(name, { fatal: true });
+    new Ctor(name, { fatal: true });
     return true;
   } catch (e) {
     return false;
@@ -262,15 +269,53 @@ function decodesStrictlyAs(data: Uint8Array, charsetName: string, codecs?: TextC
       return false;
     }
   }
-  try {
-    const decoder: TextDecoder = new TextDecoder(toDecoderLabel(charsetName), { fatal: true });
-    decoder.decode(data);
-    return true;
-  } catch (e) {
+  const Ctor = textDecoderCtor();
+  if (Ctor === null) {
     // 运行环境没有该解码器时：GB18030 几乎能覆盖全部字节序列，按可解处理，
     // 交给后续 decode(非严格) 兜底，行为与安卓“GB18030 回退”一致。
     return charsetName === GB18030;
   }
+  try {
+    new Ctor(toDecoderLabel(charsetName), { fatal: true }).decode(data);
+    return true;
+  } catch (e) {
+    return charsetName === GB18030;
+  }
+}
+
+/**
+ * 取全局 TextDecoder 构造器（Node/浏览器有；鸿蒙 ArkTS 运行时没有，
+ * 那里一律走注入的 TextCodecs）。经 globalThis 取，避免 ArkTS
+ * 编译期“找不到名字 TextDecoder”报错。
+ */
+interface GlobalDecoder {
+  decode(bytes: Uint8Array): string;
+}
+
+interface GlobalDecoderCtor {
+  new (label?: string, options?: object): GlobalDecoder;
+}
+
+function textDecoderCtor(): GlobalDecoderCtor | null {
+  try {
+    const g = globalThis as unknown as Record<string, unknown>;
+    const c: unknown = g['TextDecoder'];
+    if (typeof c === 'function') {
+      return c as unknown as GlobalDecoderCtor;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 无解码器时的最后兜底：ASCII 原样，其余字节变为替换符。 */
+function asciiFallback(bytes: Uint8Array): string {
+  let out: string = '';
+  for (let i: number = 0; i < bytes.length; i++) {
+    out += bytes[i] < 0x80 ? String.fromCharCode(bytes[i]) : '�';
+  }
+  return out;
 }
 
 /** "UTF-16" 伪选项按 BOM 落到具体端序（无 BOM 时与 Java 一致取大端）。 */
