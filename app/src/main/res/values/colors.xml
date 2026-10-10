@@ -8,4 +8,6 @@
     <color name="find_current">#664CAF50</color>
     <color name="banner_bg">#FFF3E0</color>
     <color name="banner_text">#E65100</color>
+    <!-- 与 icon.png 边缘纸色一致，作为自适应图标背景（仅此一个颜色，不打包原图） -->
+    <color name="ic_launcher_background">#FAFAF3</color>
 </resources>
