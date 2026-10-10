@@ -2,6 +2,14 @@ plugins {
     id 'com.android.application'
 }
 
+// 从仓库根目录的 keystore.properties 读取签名信息（该文件与 *.jks 已被 .gitignore 忽略）
+// 若文件缺失（例如他人克隆仓库后），release 仍可构建，只是不签名。
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace 'io.github.hecate2.paper'
     compileSdk 35
@@ -14,17 +22,44 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            release {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 不写入 META-INF/version-control-info.textproto（省掉无用元数据）
+            vcsInfo {
+                include = false
+            }
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // release 产物固定命名：白纸v{versionName}.apk
+    applicationVariants.all { variant ->
+        if (variant.buildType.name == 'release') {
+            variant.outputs.all { output ->
+                outputFileName = "白纸v${variant.versionName}.apk"
+            }
+        }
     }
 
     testOptions {
