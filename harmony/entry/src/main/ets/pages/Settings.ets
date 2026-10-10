@@ -50,21 +50,35 @@ struct Settings {
   }
 
   build() {
-    Scroll() {
-      Column({ space: 14 }) {
-        Row({ space: 12 }) {
-          Button('‹ 返回').fontSize(14).onClick((): void => {
-            router.back();
-          });
-          Text('设置').fontSize(20).fontWeight(FontWeight.Bold);
+    Column({ space: 0 }) {
+      // 顶栏（对齐安卓 DarkActionBar：home 图标格 56×56dp、标题 20sp 左缩 72dp，无其他动作）
+      Row({ space: 0 }) {
+        Column() {
+          Image($r('app.media.ic_arrow_back_w')).width(24).height(24);
         }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 24 })
-        .alignItems(VerticalAlign.Center);
+        .width(56)
+        .height(56)
+        .justifyContent(FlexAlign.Center)
+        .id('settingsBack')
+        .onClick((): void => {
+          router.back();
+        });
+        Text('设置')
+          .fontSize(20)
+          .fontColor($r('app.color.white'))
+          .margin({ left: 16 })
+          .layoutWeight(1)
+          .maxLines(1)
+          .id('settingsTitle');
+      }
+      .backgroundColor($r('app.color.action_bar'))
+      .width('100%')
+      .height(56);
 
-        // 启动时打开
-        Column({ space: 6 }) {
-          Text('启动时打开').fontSize(15).fontWeight(FontWeight.Medium).width('100%');
+      Scroll() {
+        Column({ space: 0 }) {
+          // 启动时打开（对齐 activity_settings.xml 分组与顺序）
+          Text('启动时打开').fontSize(15).fontWeight(FontWeight.Bold).width('100%');
           Row({ space: 12 }) {
             Radio({ value: 'new', group: 'startup' })
               .checked(this.startupIndex() === 0)
@@ -74,8 +88,8 @@ struct Settings {
                   this.prefs?.setStartupMode(MODE_NEW_EMPTY);
                 }
               });
-            Text('新的空文件').fontSize(14);
-          }
+            Text('新的空文件').fontSize(15);
+          }.margin({ top: 4 });
           Row({ space: 12 }) {
             Radio({ value: 'file', group: 'startup' })
               .checked(this.startupIndex() === 1)
@@ -85,7 +99,7 @@ struct Settings {
                   this.prefs?.setStartupMode(MODE_LAST_FILE);
                 }
               });
-            Text('上次打开的文件').fontSize(14);
+            Text('上次打开的文件').fontSize(15);
           }
           Row({ space: 12 }) {
             Radio({ value: 'dir', group: 'startup' })
@@ -96,97 +110,90 @@ struct Settings {
                   this.prefs?.setStartupMode(MODE_LAST_DIR);
                 }
               });
-            Text('上次使用的目录').fontSize(14);
+            Text('上次使用的目录').fontSize(15);
           }
           Row({ space: 12 }) {
             Checkbox()
               .select(this.rememberLine)
               .enabled(this.startup === MODE_LAST_FILE)
+              .id('rememberLineCheck')
               .onChange((on: boolean): void => {
                 this.rememberLine = on;
                 this.prefs?.setRememberLastLine(on);
               });
             Text('记住上次编辑的行号').fontSize(14)
               .opacity(this.startup === MODE_LAST_FILE ? 1 : 0.4);
-          }
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding({ left: 16, right: 16 });
+          }.margin({ left: 12 });
 
-        // 自动保存
-        Column({ space: 6 }) {
-          Text('自动保存间隔（秒，0 = 关闭）').fontSize(15).fontWeight(FontWeight.Medium).width('100%');
-          TextInput({ placeholder: '0', text: this.autosave })
-            .inputFilter('[0-9]', (): void => {})
+          Text('自动保存间隔').fontSize(15).fontWeight(FontWeight.Bold).width('100%')
+            .margin({ top: 16 });
+          Row({ space: 6 }) {
+            TextInput({ placeholder: '0', text: this.autosave })
+              .inputFilter('[0-9]', (): void => {})
+              .width(72)
+              .fontSize(15)
+              .id('autosaveInput')
+              .onChange((v: string): void => {
+                this.autosave = v;
+                const n: number = parseInt(v.trim(), 10);
+                if (!isNaN(n)) {
+                  this.prefs?.setAutosaveIntervalSec(n);
+                }
+              });
+            Text('s').fontSize(15);
+            Text('0 = 关闭').fontSize(12).fontColor('#FF888888').margin({ left: 8 });
+          }.margin({ top: 4 });
+
+          Text('文字大小：' + this.fontSize + 'sp').fontSize(15).fontWeight(FontWeight.Bold)
             .width('100%')
-            .onChange((v: string): void => {
-              this.autosave = v;
-              const n: number = parseInt(v.trim(), 10);
-              if (!isNaN(n)) {
-                this.prefs?.setAutosaveIntervalSec(n);
-              }
-            });
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding({ left: 16, right: 16 });
-
-        // 字号
-        Column({ space: 6 }) {
-          Text('文字大小：' + this.fontSize + 'sp').fontSize(15).fontWeight(FontWeight.Medium).width('100%');
+            .margin({ top: 16 });
           Slider({ value: this.fontSize, min: MIN_FONT_SIZE, max: MAX_FONT_SIZE, step: 1 })
             .width('100%')
+            .id('fontSlider')
             .onChange((v: number): void => {
               this.fontSize = Math.round(v);
               this.prefs?.setFontSizeSp(Math.round(v));
             });
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding({ left: 16, right: 16 });
 
-        // 开关
-        Row({ space: 12 }) {
-          Toggle({ type: ToggleType.Switch, isOn: this.showNumbers })
-            .onChange((on: boolean): void => {
-              this.showNumbers = on;
-              this.prefs?.setShowLineNumbers(on);
-            });
-          Text('显示行号').fontSize(15);
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16 });
-        Row({ space: 12 }) {
-          Toggle({ type: ToggleType.Switch, isOn: this.wordWrap })
-            .onChange((on: boolean): void => {
-              this.wordWrap = on;
-              this.prefs?.setWordWrap(on);
-            });
-          Text('自动换行（只读预览）').fontSize(15);
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16 });
+          Row({ space: 12 }) {
+            Checkbox()
+              .select(this.showNumbers)
+              .id('lineNumbersCheck')
+              .onChange((on: boolean): void => {
+                this.showNumbers = on;
+                this.prefs?.setShowLineNumbers(on);
+              });
+            Text('显示行号').fontSize(15);
+          }.margin({ top: 12 });
+          Row({ space: 12 }) {
+            Checkbox()
+              .select(this.wordWrap)
+              .id('wordWrapCheck')
+              .onChange((on: boolean): void => {
+                this.wordWrap = on;
+                this.prefs?.setWordWrap(on);
+              });
+            Text('自动换行').fontSize(15);
+          }
 
-        // 默认编码
-        Column({ space: 6 }) {
-          Text('默认编码').fontSize(15).fontWeight(FontWeight.Medium).width('100%');
+          Text('默认编码').fontSize(15).fontWeight(FontWeight.Bold).width('100%')
+            .margin({ top: 16 });
           Select(USER_CHOICES.map((c: string): SelectOption => {
             return { value: labelOf(c) };
           }))
             .selected(this.encodingIdx)
             .width('100%')
+            .id('encodingSelect')
             .onSelect((index: number): void => {
               this.encodingIdx = index;
               this.prefs?.setDefaultEncoding(USER_CHOICES[index]);
             });
         }
-        .alignItems(HorizontalAlign.Start)
         .width('100%')
-        .padding({ left: 16, right: 16 });
+        .padding(16);
       }
-      .width('100%')
-      .alignItems(HorizontalAlign.Center);
-    }.width('100%').height('100%');
+      .layoutWeight(1)
+      .width('100%');
+    }.width('100%').height('100%').backgroundColor($r('app.color.page_bg'));
   }
 }

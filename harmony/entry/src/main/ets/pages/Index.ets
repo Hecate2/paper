@@ -1,4 +1,4 @@
-import { router, promptAction } from '@kit.ArkUI';
+import { router, promptAction, MeasureText } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -33,9 +33,9 @@ import { write as atomicWrite, restoreFromBackup, backupExists } from '../core/A
  *    不做全文染色。只读大文件用 List 懒加载实现虚拟化（行内仍有行号）。
  * 2. TextArea 恒为自动换行（ArkUI 无横向滚动开关）；“自动换行”设置项
  *    控制只读预览是否换行。
- * 3. 光标行 K 只在程序性移动（打开恢复/查找跳转）后精确已知；
- *    用户触摸移动光标后 K 会滞后——这是 ArkUI 未暴露 caret 事件所致，
- *    行号总数与保存/查找逻辑不受影响。
+ * 3. 光标行经 TextArea.onTextSelectionChange 实时跟踪（含用户点选），
+ *    行号状态条/记住行号/查找跳转都准确；顶栏样式与按钮收纳对齐安卓
+ *    DarkActionBar（深底 + 白图标，常驻 关闭/保存/查找 + ⋮ 溢出菜单）。
  * 4. 真实路径 ↔ Picker URI：FILE 模式既可是沙箱路径也可是持久授权 URI；
  *    沙箱内走原子写，Picker URI 走覆盖写（save 面板拿到的 URI 本来就是
  *    用户刚确认的位置，不做 .bak）。
@@ -56,36 +56,59 @@ struct SaveDialogContent {
   onOk: (name: string) => void = (name: string): void => {};
 
   build() {
-    Column({ space: 12 }) {
+    Column({ space: 8 }) {
       Text('保存文件').fontSize(18).fontWeight(FontWeight.Bold);
+      // 对齐 dialog_save.xml：文件名输入 + [保存到：][目录][浏览图标]
       TextInput({ placeholder: '文件名（默认 .txt）', text: this.fileName })
+        .fontSize(16)
         .onChange((v: string): void => {
           this.fileName = v;
         });
-      Text('保存到：' + (this.dirPath === '' ? '（未选择）' : this.dirPath))
-        .fontSize(13)
-        .width('100%');
-      Row({ space: 12 }) {
-        Button('浏览…').fontSize(14).onClick((): void => {
-          const n: string = this.fileName;
-          this.controller?.close();
-          this.onBrowse(n);
-        });
-        Button('其他位置…').fontSize(14).onClick((): void => {
-          const n: string = this.fileName;
-          this.controller?.close();
-          this.onSystem(n);
-        });
-      }.justifyContent(FlexAlign.End).width('100%');
-      Row({ space: 12 }) {
-        Button('取消').onClick((): void => {
-          this.controller?.close();
-        });
-        Button('保存', { type: ButtonType.Capsule, stateEffect: true }).onClick((): void => {
-          const n: string = this.fileName;
-          this.controller?.close();
-          this.onOk(n);
-        });
+      Row({ space: 0 }) {
+        Text('保存到：').fontSize(14);
+        Text(this.dirPath === '' ? '（未选择）' : this.dirPath)
+          .fontSize(13)
+          .fontColor('#FF444444')
+          .layoutWeight(1)
+          .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis });
+        Image($r('app.media.ic_folder_open_b'))
+          .width(24)
+          .height(24)
+          .margin(8)
+          .id('saveBrowse')
+          .onClick((): void => {
+            const n: string = this.fileName;
+            this.controller?.close();
+            this.onBrowse(n);
+          });
+      }.width('100%');
+      // 对话框按钮统一用文字样式（同安卓 AlertDialog），“其他位置…”走系统面板
+      Row({ space: 4 }) {
+        Button('其他位置…')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor('#00000000')
+          .onClick((): void => {
+            const n: string = this.fileName;
+            this.controller?.close();
+            this.onSystem(n);
+          });
+        Button('取消')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor('#00000000')
+          .id('saveCancel')
+          .onClick((): void => {
+            this.controller?.close();
+          });
+        Button('保存')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor('#00000000')
+          .id('saveOk')
+          .onClick((): void => {
+            const n: string = this.fileName;
+            this.controller?.close();
+            this.onOk(n);
+          });
       }.justifyContent(FlexAlign.End).width('100%');
     }.padding(20).width('90%');
   }
@@ -98,24 +121,98 @@ struct RenameDialogContent {
   onOk: (name: string) => void = (name: string): void => {};
 
   build() {
-    Column({ space: 12 }) {
+    Column({ space: 8 }) {
       Text('重命名').fontSize(18).fontWeight(FontWeight.Bold);
       TextInput({ placeholder: '新文件名', text: this.fileName })
+        .fontSize(16)
         .onChange((v: string): void => {
           this.fileName = v;
         });
-      Row({ space: 12 }) {
-        Button('取消').onClick((): void => {
-          this.controller?.close();
-        });
-        Button('保存', { type: ButtonType.Capsule, stateEffect: true }).onClick((): void => {
-          const n: string = this.fileName;
-          this.controller?.close();
-          this.onOk(n);
-        });
+      Row({ space: 4 }) {
+        Button('取消')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor('#00000000')
+          .id('renameCancel')
+          .onClick((): void => {
+            this.controller?.close();
+          });
+        Button('保存')
+          .fontColor($r('app.color.brand'))
+          .backgroundColor('#00000000')
+          .id('renameOk')
+          .onClick((): void => {
+            const n: string = this.fileName;
+            this.controller?.close();
+            this.onOk(n);
+          });
       }.justifyContent(FlexAlign.End).width('100%');
     }.padding(20).width('90%');
   }
+}
+
+/**
+ * 深色顶栏上的白图标按钮。安卓实测（API 30 / density 2.75）：
+ * actionBar 高 56dp，每个菜单项 48×48dp、图标 24dp 居中；
+ * 禁用时 alpha = disabledAlpha = 0.5。
+ */
+@Builder
+function BarIcon(icon: Resource, enabled: boolean, id: string, onTap: () => void) {
+  Column() {
+    Image(icon).width(24).height(24);
+  }
+  .width(48)
+  .height(48)
+  .justifyContent(FlexAlign.Center)
+  .opacity(enabled ? 1 : 0.5)
+  .enabled(enabled)
+  .id(id)
+  .onClick(onTap);
+}
+
+/**
+ * 中间省略。安卓标题用自定义 TextView + TruncateAt.MIDDLE，ArkUI 只有尾部省略，
+ * 这里按实际宽度用 MeasureText 逐字收缩，复刻“首尾都保留、中间打点”的效果。
+ */
+function fitMiddle(text: string, availVp: number, fontSize: number): string {
+  if (availVp <= 8 || text.length < 5) {
+    return text;
+  }
+  try {
+    const maxPx: number = vp2px(availVp);
+    const measure: (s: string) => number = (s: string): number =>
+      MeasureText.measureText({ textContent: s, fontSize: fontSize });
+    if (measure(text) <= maxPx) {
+      return text;
+    }
+    let keep: number = text.length - 1;
+    while (keep > 1) {
+      const left: number = Math.ceil(keep / 2);
+      const cand: string = text.substring(0, left) + '…' +
+        text.substring(text.length - (keep - left));
+      if (measure(cand) <= maxPx) {
+        return cand;
+      }
+      keep--;
+    }
+    return '…';
+  } catch (e) {
+    return text;
+  }
+}
+
+/** 浅色弹出菜单/子菜单的文本色（安卓 primary_text_material_light / disabled 版）。 */
+const MENU_TEXT: string = '#DE000000';
+const MENU_TEXT_DISABLED: string = '#42000000';
+
+/** 浅色界面上的深色图标按钮（对齐安卓 borderless ImageButton，40dp；传 6 得 36dp）。 */
+@Builder
+function ToolIcon(icon: Resource, margin: number, id: string, onTap: () => void) {
+  Image(icon)
+    .width(24)
+    .height(24)
+    .margin(margin)
+    .id(id)
+    .onClick(onTap);
 }
 
 @Entry
@@ -144,6 +241,9 @@ struct Index {
   @State loadingText: string = '';
   @State viewerCapped: boolean = false;
   @State viewerLines: string[] = [];
+  @State overflowOpen: boolean = false;
+  @State overflowSubmenu: boolean = false;
+  @State titleWidth: number = 0;
 
   private prefs: Prefs | null = null;
   private files: FileService | null = null;
@@ -1285,13 +1385,198 @@ struct Index {
     return '#00000000';
   }
 
-  private encodingIndex(): number {
-    for (let i: number = 0; i < USER_CHOICES.length; i++) {
-      if (USER_CHOICES[i] === this.encoding) {
-        return i;
+  /** 新建（脏时先确认，对应安卓 action_new）。 */
+  private confirmNewFile(): void {
+    if (this.dirty) {
+      this.confirmDiscardThen((): void => {
+        this.resetToScratch(null);
+      });
+    } else {
+      this.resetToScratch(null);
+    }
+  }
+
+  /** 打开（脏时先确认，对应安卓 action_open）。 */
+  private openBrowserPage(): void {
+    const openBrowser: () => void = (): void => {
+      const p: Prefs | null = this.prefs;
+      AppStorage.setOrCreate('paperBrowserStart', p !== null ? p.lastDirectory() : '');
+      AppStorage.setOrCreate('paperBrowserMode', 'open');
+      router.pushUrl({ url: 'pages/Browser' });
+    };
+    if (this.dirty) {
+      this.confirmDiscardThen(openBrowser);
+    } else {
+      openBrowser();
+    }
+  }
+
+  /**
+   * 溢出菜单（⋮）。安卓实测：弹出层宽 196dp、无内边距，每项 48dp 高、16sp、
+   * 文字左缩 16dp，**菜单项不显示图标**（actionBar 只在图标区显示图标）；
+   * “编码”项带右向三角，展开为 226dp 宽的子菜单（顶部“编码 · X”标题行 +
+   * 7 个 48dp 单选行，勾选框贴右 16dp）——子菜单在同一个弹出层内切换，
+   * 与安卓 SubMenu 的收纳关系一致。
+   */
+  @Builder
+  overflowPopup() {
+    Column({ space: 0 }) {
+      if (this.overflowSubmenu) {
+        Row() {
+          Text('编码 · ' + this.encoding)
+            .fontSize(16)
+            .fontColor(MENU_TEXT)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 });
+        ForEach(USER_CHOICES, (c: string) => {
+          Row() {
+            Text(labelOf(c))
+              .fontSize(16)
+              .fontColor(MENU_TEXT)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1);
+            Checkbox()
+              .select(this.encodingChoiceSelected(c))
+              .selectedColor($r('app.color.brand'))
+              .width(24)
+              .height(24)
+              .hitTestBehavior(HitTestMode.None);
+          }
+          .width('100%')
+          .height(48)
+          .padding({ left: 16, right: 16 })
+          .onClick((): void => {
+            this.overflowOpen = false;
+            this.overflowSubmenu = false;
+            this.onEncodingChosen(c);
+          });
+        }, (c: string): string => c);
+      } else {
+        Row() {
+          Text('新建').fontSize(16).fontColor(MENU_TEXT).maxLines(1).layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuNew')
+        .onClick((): void => {
+          this.overflowOpen = false;
+          this.confirmNewFile();
+        });
+        Row() {
+          Text('打开').fontSize(16).fontColor(MENU_TEXT).maxLines(1).layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuOpen')
+        .onClick((): void => {
+          this.overflowOpen = false;
+          this.openBrowserPage();
+        });
+        Row() {
+          Text('重命名')
+            .fontSize(16)
+            .fontColor(this.mode === 'file' && !this.readOnly ? MENU_TEXT : MENU_TEXT_DISABLED)
+            .maxLines(1)
+            .layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuRename')
+        .onClick((): void => {
+          if (this.mode === 'file' && !this.readOnly) {
+            this.overflowOpen = false;
+            this.actionRename();
+          }
+        });
+        Row() {
+          Text('另存为')
+            .fontSize(16)
+            .fontColor(this.readOnly ? MENU_TEXT_DISABLED : MENU_TEXT)
+            .maxLines(1)
+            .layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuSaveAs')
+        .onClick((): void => {
+          if (!this.readOnly) {
+            this.overflowOpen = false;
+            this.actionSaveAs();
+          }
+        });
+        Row() {
+          Text('编码 · ' + this.encoding)
+            .fontSize(16)
+            .fontColor(MENU_TEXT)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1);
+          Image($r('app.media.ic_submenu_arrow')).width(24).height(24);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuEncoding')
+        .onClick((): void => {
+          this.overflowSubmenu = true;
+        });
+        Row() {
+          Text('恢复备份')
+            .fontSize(16)
+            .fontColor(this.mode === 'file' ? MENU_TEXT : MENU_TEXT_DISABLED)
+            .maxLines(1)
+            .layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuRestore')
+        .onClick((): void => {
+          if (this.mode === 'file') {
+            this.overflowOpen = false;
+            this.restoreBackup();
+          }
+        });
+        Row() {
+          Text('设置').fontSize(16).fontColor(MENU_TEXT).maxLines(1).layoutWeight(1);
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+        .id('menuSettings')
+        .onClick((): void => {
+          this.overflowOpen = false;
+          router.pushUrl({ url: 'pages/Settings' });
+        });
       }
     }
-    return 0;
+    .width(this.overflowSubmenu ? 226 : 196)
+    .backgroundColor('#FFFAFAFA');
+  }
+
+  /** 顶栏标题（安卓：文件名 + 未保存时的 “ •”），超宽时中间省略。 */
+  private titleLabel(): string {
+    const name: string = this.dirty ? this.fileName + ' •' : this.fileName;
+    return fitMiddle(name, this.titleWidth > 12 ? this.titleWidth - 12 : 0, 18);
+  }
+
+  /** 编码子菜单的勾选状态（与安卓 onPrepareOptionsMenu 的判定表达式一致）。 */
+  private encodingChoiceSelected(c: string): boolean {
+    if (c === this.encoding) {
+      return true;
+    }
+    const p: Prefs | null = this.prefs;
+    return isAuto(c) && p !== null && isAuto(p.defaultEncoding());
   }
 
   // ---- 界面 ----
@@ -1299,78 +1584,70 @@ struct Index {
   build() {
     Stack() {
       Column({ space: 0 }) {
-        // 标题（可点击重命名，对应安卓 clickable title；“ •” 标记未保存）
-        Text(this.dirty ? this.fileName + ' •' : this.fileName)
-          .fontSize(17)
-          .fontWeight(FontWeight.Medium)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-          .textAlign(TextAlign.Center)
-          .padding({ top: 10, bottom: 6 })
-          .onClick((): void => {
-            this.actionRename();
+        // 顶栏（对齐安卓 DarkActionBar：深底 #212121 + 白字标题 + 白图标；
+        // 右侧常驻 关闭/保存/查找 + ⋮（各 48×48dp，溢出钮 40×48dp），
+        // 其余收纳进溢出菜单，分组顺序与 menu/main.xml 一致）
+        Row({ space: 0 }) {
+          Text(this.titleLabel())
+            .fontSize(18)
+            .fontColor($r('app.color.white'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .padding({ left: 6, right: 6 })
+            .margin({ left: 16 })
+            .layoutWeight(1)
+            .id('actionTitle')
+            .onAreaChange((oldArea: Area, newArea: Area): void => {
+              const w: number = Number(newArea.width);
+              if (Math.abs(w - this.titleWidth) > 0.5) {
+                this.titleWidth = w;
+              }
+            })
+            .onClick((): void => {
+              this.actionRename();
+            });
+          BarIcon($r('app.media.ic_close_w'), true, 'actionClose', (): void => {
+            this.actionClose();
           });
-
-        // 顶栏（对应安卓 actionBar：先三个常用动作，其余为菜单项，左右顺序一致）
-        Scroll() {
-          Row({ space: 8 }) {
-            Button('关闭').fontSize(13).onClick((): void => {
-              this.actionClose();
-            });
-            Button('保存').fontSize(13).enabled(!this.readOnly).onClick((): void => {
-              this.actionSave();
-            });
-            Button('查找').fontSize(13).onClick((): void => {
-              this.toggleFindBar();
-            });
-            Button('新建').fontSize(13).onClick((): void => {
-              if (this.dirty) {
-                this.confirmDiscardThen((): void => {
-                  this.resetToScratch(null);
-                });
-              } else {
-                this.resetToScratch(null);
+          BarIcon($r('app.media.ic_save_w'), !this.readOnly, 'actionSave', (): void => {
+            this.actionSave();
+          });
+          BarIcon($r('app.media.ic_search_w'), true, 'actionFind', (): void => {
+            this.toggleFindBar();
+          });
+          // 溢出钮：安卓实测 40×48dp；弹出层与图标格顶边对齐（下拉位置回退一格）
+          Column() {
+            Image($r('app.media.ic_more_w')).width(24).height(24);
+          }
+          .width(40)
+          .height(48)
+          .justifyContent(FlexAlign.Center)
+          .id('actionMore')
+          .bindPopup(this.overflowOpen, {
+            builder: this.overflowPopup,
+            placement: Placement.BottomRight,
+            // 安卓弹出层右缘距屏右 3.4dp、顶边与图标格顶边齐（dropDownVerticalOffset 4dp）
+            offset: { x: 4, y: -48 },
+            radius: 2,
+            popupColor: '#FFFAFAFA',
+            shadow: { radius: 16, color: '#33000000', offsetX: 0, offsetY: 4 },
+            mask: false,
+            enableArrow: false,
+            autoCancel: true,
+            onStateChange: (e: PopupStateChangeParam): void => {
+              if (!e.isVisible) {
+                this.overflowSubmenu = false;
               }
-            });
-            Button('打开').fontSize(13).onClick((): void => {
-              const openBrowser: () => void = (): void => {
-                const p: Prefs | null = this.prefs;
-                AppStorage.setOrCreate('paperBrowserStart', p !== null ? p.lastDirectory() : '');
-                AppStorage.setOrCreate('paperBrowserMode', 'open');
-                router.pushUrl({ url: 'pages/Browser' });
-              };
-              if (this.dirty) {
-                this.confirmDiscardThen(openBrowser);
-              } else {
-                openBrowser();
-              }
-            });
-            Button('重命名').fontSize(13)
-              .enabled(this.mode === 'file' && !this.readOnly)
-              .onClick((): void => {
-                this.actionRename();
-              });
-            Button('另存为').fontSize(13).enabled(!this.readOnly).onClick((): void => {
-              this.actionSaveAs();
-            });
-            Select(USER_CHOICES.map((c: string): SelectOption => {
-              return { value: labelOf(c) };
-            }))
-              .selected(this.encodingIndex())
-              .onSelect((index: number): void => {
-                this.onEncodingChosen(USER_CHOICES[index]);
-              });
-            Button('备份').fontSize(13).enabled(this.mode === 'file').onClick((): void => {
-              this.restoreBackup();
-            });
-            Button('设置').fontSize(13).onClick((): void => {
-              router.pushUrl({ url: 'pages/Settings' });
-            });
-          }.padding({ left: 8, right: 8, top: 6, bottom: 6 });
+            }
+          })
+          .onClick((): void => {
+            this.overflowSubmenu = false;
+            this.overflowOpen = !this.overflowOpen;
+          });
         }
-        .scrollable(ScrollDirection.Horizontal)
-        .width('100%');
+        .backgroundColor($r('app.color.action_bar'))
+        .width('100%')
+        .height(56);
 
         // 状态条（行号开关控制显隐；光标行在程序性移动后精确）
         if (this.showNumbers) {
@@ -1412,28 +1689,26 @@ struct Index {
                   }
                 });
               Text(this.matchInfo).fontSize(12).fontColor('#666666');
-              Button('▲').fontSize(13).backgroundColor('#00000000')
-                .fontColor('#666666').onClick((): void => {
+              ToolIcon($r('app.media.ic_chevron_up_b'), 6, 'findPrev', (): void => {
                 this.gotoMatch(this.matchIndex - 1);
               });
-              Button('▼').fontSize(13).backgroundColor('#00000000')
-                .fontColor('#666666').onClick((): void => {
+              ToolIcon($r('app.media.ic_chevron_down_b'), 6, 'findNext', (): void => {
                 this.gotoMatch(this.matchIndex + 1);
               });
-              Button('Aa').fontSize(13).backgroundColor('#00000000')
-                .fontColor(this.caseSens ? '#2196F3' : '#9E9E9E')
+              Button('Aa').fontSize(14).backgroundColor('#00000000')
+                .fontColor(this.caseSens ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
                 .onClick((): void => {
                   this.caseSens = !this.caseSens;
                   this.runFindNow();
                 });
-              Button('.*').fontSize(13).backgroundColor('#00000000')
-                .fontColor(this.useRegex ? '#2196F3' : '#9E9E9E')
+              Button('.*').fontSize(14).backgroundColor('#00000000')
+                .fontColor(this.useRegex ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
                 .onClick((): void => {
                   this.useRegex = !this.useRegex;
                   this.runFindNow();
                 });
-              Button('[w]').fontSize(13).backgroundColor('#00000000')
-                .fontColor(this.wholeWord ? '#2196F3' : '#9E9E9E')
+              Button('[wd]').fontSize(14).backgroundColor('#00000000')
+                .fontColor(this.wholeWord ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
                 .onClick((): void => {
                   this.wholeWord = !this.wholeWord;
                   this.runFindNow();
@@ -1446,14 +1721,13 @@ struct Index {
                 .onChange((v: string): void => {
                   this.replacement = v;
                 });
-              Button('替换').fontSize(13).onClick((): void => {
+              ToolIcon($r('app.media.ic_swap_horiz_b'), 6, 'findReplaceOne', (): void => {
                 this.replaceCurrent();
               });
-              Button('全部').fontSize(13).onClick((): void => {
+              ToolIcon($r('app.media.ic_done_all_b'), 6, 'findReplaceAll', (): void => {
                 this.replaceAll();
               });
-              Button('✕').fontSize(13).backgroundColor('#00000000')
-                .fontColor('#666666').onClick((): void => {
+              ToolIcon($r('app.media.ic_close_b'), 6, 'findClose', (): void => {
                 this.toggleFindBar();
               });
             }
@@ -1533,7 +1807,7 @@ struct Index {
         .height('100%')
         .backgroundColor('#88000000');
       }
-    }.width('100%').height('100%');
+    }.width('100%').height('100%').backgroundColor($r('app.color.page_bg'));
   }
 }
 

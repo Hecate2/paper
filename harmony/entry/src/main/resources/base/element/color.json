@@ -2,43 +2,83 @@
   "color": [
     {
       "name": "brand",
-      "value": "#0A59F7"
+      "value": "#FF2196F3"
     },
     {
       "name": "white",
-      "value": "#FFFFFF"
+      "value": "#FFFFFFFF"
+    },
+    {
+      "name": "action_bar",
+      "value": "#FF212121"
+    },
+    {
+      "name": "page_bg",
+      "value": "#FFFAFAFA"
     },
     {
       "name": "current_line",
-      "value": "#FFF5F5F5"
+      "value": "#16000000"
     },
     {
       "name": "gutter_bg",
-      "value": "#FFF0F0F0"
+      "value": "#00000000"
     },
     {
       "name": "gutter_text",
-      "value": "#FF999999"
+      "value": "#99000000"
+    },
+    {
+      "name": "gutter_text_current",
+      "value": "#FF5722"
     },
     {
       "name": "find_highlight",
-      "value": "#55FFEB3B"
+      "value": "#66FFC107"
     },
     {
       "name": "find_current",
-      "value": "#554CAF50"
+      "value": "#664CAF50"
     },
     {
       "name": "banner_bg",
-      "value": "#FFFFF3CD"
+      "value": "#FFF3E0"
     },
     {
       "name": "banner_text",
-      "value": "#FF664D03"
+      "value": "#E65100"
+    },
+    {
+      "name": "find_toggle_on",
+      "value": "#FF2196F3"
+    },
+    {
+      "name": "find_toggle_off",
+      "value": "#FF9E9E9E"
+    },
+    {
+      "name": "browser_path_bg",
+      "value": "#FFF5F5F5"
+    },
+    {
+      "name": "browser_path_text",
+      "value": "#FF333333"
     },
     {
       "name": "browser_search_bg",
-      "value": "#FFFFF3CD"
+      "value": "#FFFFB300"
+    },
+    {
+      "name": "browser_search_text",
+      "value": "#FF3E2723"
+    },
+    {
+      "name": "row_name",
+      "value": "#FF212121"
+    },
+    {
+      "name": "row_meta",
+      "value": "#FF9E9E9E"
     }
   ]
 }

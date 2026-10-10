@@ -27,3 +27,5 @@ harmony/**/build/
 harmony/**/oh_modules/
 harmony/**/ohosTest/outputs/
 harmony/tests/.tmp/
+# e2e 脚本抓的截图（体积大，不入库）
+harmony/tests/e2e/shots/

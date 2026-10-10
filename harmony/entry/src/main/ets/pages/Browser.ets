@@ -242,6 +242,33 @@ struct Browser {
     }
   }
 
+  /**
+   * 排序弹出菜单。安卓实测：PopupMenu 带 6 项（名称/大小/时间/类型 + 升序/降序），
+   * 行高 48dp、文字 16sp，方向项与字段项同在一个菜单里（箭头按钮仍可一键切换）。
+   */
+  private sortMenuItems(): MenuElement[] {
+    return [
+      { value: '名称', action: (): void => { this.setSortField('name'); } },
+      { value: '大小', action: (): void => { this.setSortField('size'); } },
+      { value: '时间', action: (): void => { this.setSortField('date'); } },
+      { value: '类型', action: (): void => { this.setSortField('type'); } },
+      { value: '升序', action: (): void => { this.setSortDesc(false); } },
+      { value: '降序', action: (): void => { this.setSortDesc(true); } }
+    ];
+  }
+
+  private setSortField(field: SortField): void {
+    this.sortField = field;
+    this.prefs?.setBrowserSort(field);
+    this.applySort();
+  }
+
+  private setSortDesc(desc: boolean): void {
+    this.sortDesc = desc;
+    this.prefs?.setBrowserSortDesc(desc);
+    this.applySort();
+  }
+
   private sortLabel(): string {
     if (this.sortField === 'size') {
       return '大小';
@@ -257,86 +284,139 @@ struct Browser {
 
   build() {
     Column({ space: 0 }) {
-      // 路径条（搜索时高亮色调，对应安卓 pathBar）
+      // 顶栏（对齐安卓 DarkActionBar：home 图标格 56×56dp（=actionBarSize，图标居中）、
+      // 标题 20sp 且左缩到 72dp（=home 56 + 内缩 16）、菜单项 48×48dp；
+      // 选择目录模式没有“新建空文件”。）
+      Row({ space: 0 }) {
+        Column() {
+          Image($r('app.media.ic_arrow_back_w')).width(24).height(24);
+        }
+        .width(56)
+        .height(56)
+        .justifyContent(FlexAlign.Center)
+        .id('browserBack')
+        .onClick((): void => {
+          router.back();
+        });
+        Text('选择文件')
+          .fontSize(20)
+          .fontColor($r('app.color.white'))
+          .margin({ left: 16 })
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .id('browserTitle');
+        if (!this.pickMode) {
+          Column() {
+            Image($r('app.media.ic_add_w')).width(24).height(24);
+          }
+          .width(48)
+          .height(48)
+          .justifyContent(FlexAlign.Center)
+          .id('browserNewFile')
+          .onClick((): void => {
+            this.prefs?.recordDirectory(this.currentDir);
+            AppStorage.setOrCreate('paperNewFile', true);
+            router.back();
+          });
+        }
+      }
+      .backgroundColor($r('app.color.action_bar'))
+      .width('100%')
+      .height(56);
+
+      // 路径条（搜索时变琥珀色，同安卓 pathView）
       Text(this.pathBarText())
         .fontSize(13)
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .fontColor(this.query.trim() !== '' ? $r('app.color.browser_search_text') : $r('app.color.browser_path_text'))
         .width('100%')
         .padding(8)
-        .backgroundColor(this.query.trim() !== '' ? $r('app.color.browser_search_bg') : '#FFF0F0F0');
+        .backgroundColor(this.query.trim() !== '' ? $r('app.color.browser_search_bg') : $r('app.color.browser_path_bg'));
 
-      // 工具栏（对齐安卓：先导航/排序，再搜索；横向可滚避免窄屏挤压）
+      // 工具栏（对齐 activity_browser.xml 的单行顺序：上级/排序/方向/选目录/正则/搜索/清空）
       Scroll() {
-        Row({ space: 8 }) {
-          Button('‹ 返回').fontSize(13).onClick((): void => {
-            router.back();
-          });
-          Button('⬆ 上级').fontSize(13).onClick((): void => {
-            const i: number = this.currentDir.lastIndexOf('/');
-            if (i > 0) {
-              this.currentDir = this.currentDir.substring(0, i);
-              this.query = '';
-              this.reload();
-            }
-          });
-          Select([{ value: '名称' }, { value: '大小' }, { value: '时间' }, { value: '类型' }])
-            .selected(sortIndex(this.sortField))
-            .onSelect((index: number): void => {
-              const fields: SortField[] = ['name', 'size', 'date', 'type'];
-              this.sortField = fields[index];
-              this.prefs?.setBrowserSort(fields[index]);
+        Row({ space: 2 }) {
+          Image($r('app.media.ic_arrow_upward_b'))
+            .width(24)
+            .height(24)
+            .margin(8)
+            .id('browserUp')
+            .onClick((): void => {
+              const i: number = this.currentDir.lastIndexOf('/');
+              if (i > 0) {
+                this.currentDir = this.currentDir.substring(0, i);
+                this.query = '';
+                this.reload();
+              }
+            });
+          // 排序字段按钮：安卓是 buttonBarButtonStyle 的 40dp 文字按钮（文字色 = accent
+          // #2196F3、左右 8dp 内边距、minWidth 0），点开 48dp 行高的弹出菜单。
+          Button(this.sortLabel())
+            .type(ButtonType.Normal)
+            .borderRadius(2)
+            .fontSize(13)
+            .fontColor($r('app.color.brand'))
+            .backgroundColor('#00000000')
+            .height(40)
+            .padding({ left: 8, right: 8 })
+            .id('browserSort')
+            .bindMenu(this.sortMenuItems());
+          Image(this.sortDesc ? $r('app.media.ic_chevron_down_b') : $r('app.media.ic_chevron_up_b'))
+            .width(24)
+            .height(24)
+            .margin(8)
+            .id('browserSortDir')
+            .onClick((): void => {
+              this.sortDesc = !this.sortDesc;
+              this.prefs?.setBrowserSortDesc(this.sortDesc);
               this.applySort();
             });
-          Button(this.sortDesc ? '⬇ 降序' : '⬆ 升序').fontSize(13).onClick((): void => {
-            this.sortDesc = !this.sortDesc;
-            this.prefs?.setBrowserSortDesc(this.sortDesc);
-            this.applySort();
-          });
           if (this.pickMode) {
-            Button('选择当前目录').fontSize(13).onClick((): void => {
-              this.prefs?.recordDirectory(this.currentDir);
-              AppStorage.setOrCreate('paperPickDir', this.currentDir);
-              router.back();
-            });
-          } else {
-            Button('新建空文件').fontSize(13).onClick((): void => {
-              this.prefs?.recordDirectory(this.currentDir);
-              AppStorage.setOrCreate('paperNewFile', true);
-              router.back();
-            });
-            Button('任意文件…').fontSize(13).onClick((): void => {
-              this.pickArbitrary();
-            });
+            Image($r('app.media.ic_check_b'))
+              .width(24)
+              .height(24)
+              .margin(8)
+              .id('browserPickDir')
+              .onClick((): void => {
+                this.prefs?.recordDirectory(this.currentDir);
+                AppStorage.setOrCreate('paperPickDir', this.currentDir);
+                router.back();
+              });
           }
-        }.padding({ left: 8, right: 8, top: 6, bottom: 6 });
+          Button('.*')
+            .fontSize(14)
+            .fontColor(this.regexMode ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
+            .backgroundColor('#00000000')
+            .id('browserRegex')
+            .onClick((): void => {
+              this.regexMode = !this.regexMode;
+              this.applyFilter();
+            });
+          TextInput({ placeholder: '搜索当前目录…', text: this.query })
+            .layoutWeight(1)
+            .fontSize(14)
+            .id('browserSearch')
+            .onChange((v: string): void => {
+              this.query = v;
+              this.applyFilter();
+            });
+          if (this.query.trim() !== '') {
+            Image($r('app.media.ic_close_b'))
+              .width(24)
+              .height(24)
+              .margin(8)
+              .id('browserClear')
+              .onClick((): void => {
+                this.query = '';
+                this.applyFilter();
+              });
+          }
+        }.padding({ left: 2, right: 2 });
       }
       .scrollable(ScrollDirection.Horizontal)
       .width('100%');
-
-      // 搜索行：.* 开关在左（同安卓），输入框占满，有内容时才显示清空
-      Row({ space: 6 }) {
-        Button('.*').fontSize(13).backgroundColor('#00000000')
-          .fontColor(this.regexMode ? '#2196F3' : '#9E9E9E')
-          .onClick((): void => {
-            this.regexMode = !this.regexMode;
-            this.applyFilter();
-          });
-        TextInput({ placeholder: '搜索当前目录…', text: this.query })
-          .layoutWeight(1)
-          .fontSize(14)
-          .onChange((v: string): void => {
-            this.query = v;
-            this.applyFilter();
-          });
-        if (this.query.trim() !== '') {
-          Button('✕').fontSize(13).backgroundColor('#00000000')
-            .fontColor('#666666').onClick((): void => {
-            this.query = '';
-            this.applyFilter();
-          });
-        }
-      }.padding({ left: 8, right: 8, bottom: 6 });
 
       if (this.loading) {
         LoadingProgress().width(36).height(36).margin({ top: 24 });
@@ -345,10 +425,11 @@ struct Browser {
           ForEach(this.rows, (dr: DisplayRow, index: number) => {
             ListItem() {
               if (dr.kind === KIND_ENTRY) {
-                // 单行：名称在左，大小/时间在右（同安卓 browser_row.xml）
+                // 对齐 browser_row.xml：名称左（中省略）+ 大小时间右
                 Row({ space: 8 }) {
                   Text((dr.isDir ? '📁 ' : '') + dr.name)
                     .fontSize(15)
+                    .fontColor($r('app.color.row_name'))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
@@ -356,7 +437,7 @@ struct Browser {
                     .opacity(this.pickMode && !dr.isDir ? 0.4 : 1);
                   Text((dr.isDir ? '文件夹' : formatSize(dr.size)) + ' · ' + formatDate(dr.mtimeMs))
                     .fontSize(11)
-                    .fontColor('#FF9E9E9E')
+                    .fontColor($r('app.color.row_meta'))
                     .maxLines(1);
                 }
                 .width('100%')
@@ -379,9 +460,21 @@ struct Browser {
           });
         }
         .layoutWeight(1)
-        .width('100%');
+        .width('100%')
+        .divider({ strokeWidth: 1, color: '#11000000' });
       }
-    }.width('100%').height('100%');
+
+      // “任意文件…”兜底入口（同安卓“显示全部文件任意后缀”）
+      Button('任意文件…')
+        .fontSize(13)
+        .fontColor($r('app.color.brand'))
+        .backgroundColor('#00000000')
+        .id('browserArbitrary')
+        .margin(8)
+        .onClick((): void => {
+          this.pickArbitrary();
+        });
+    }.width('100%').height('100%').backgroundColor($r('app.color.page_bg'));
   }
 }
 
