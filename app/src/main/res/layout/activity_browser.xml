@@ -64,6 +64,19 @@
             android:src="@drawable/ic_check"
             android:visibility="gone" />
 
+        <!-- Regex toggle for the search box: gray off / blue on (see @color/find_toggle). -->
+        <CheckBox
+            android:id="@+id/btnSearchRegex"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:button="@null"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:textAllCaps="false"
+            android:textColor="@color/find_toggle"
+            android:textSize="14sp"
+            android:text="@string/find_regex" />
+
         <EditText
             android:id="@+id/searchInput"
             android:layout_width="0dp"
