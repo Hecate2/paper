@@ -118,3 +118,27 @@ node run_core_tests.mjs
 - versionName `1.0.0` / versionCode `1000000`，bundleName
   `io.github.hecate2.paper`（与安卓 `applicationId` 相同）。
 - targetSdk `5.0.0(12)`，兼容到 `5.0.0(12)`。
+
+## 首次在 DevEco 构建时的核对清单
+
+本工程在 Mac 上已用 `tsc --strict` 校验过全部 `core/*.ets`（零错误），
+并用 Node 跑通 104 项单测；但 ArkUI/系统 API 只能在配好 SDK 的 DevEco
+里做最终编译。以下几处是按公开文档写的、首构建时若 IDE 报错请优先看的位置
+（都是单点调用，改一行即可）：
+
+1. `model/FileService.ets`：`fs.sync(path)`（落盘）、`fs.rename()`（原子替换）、
+   `fs.read(fd, buf, { offset, length })` 的参数形态——不同 API Level 的
+   fileIo 签名略有出入，以 IDE 提示为准微调这一文件即可，上层逻辑不动。
+2. `model/FileService.ets`：`fileShare.persistPermission(uris, OperationMode.READ_MODE)`
+   的枚举成员名——持久化授权失败只走 `catch`（功能降级为临时授权），不阻塞构建。
+3. `pages/Index.ets`：`TextAreaController.caretOffset(n)`（程序性跳行）——
+   若所配 SDK 无此方法，删掉三处 `try { ctl.caretOffset }` 调用即可，
+   查找计数/替换逻辑不受影响。
+4. `model/TextCodecs.ets`：`util.TextDecoder.create('gb18030')`——若运行环境
+   不支持该标签，代码内已有 `gbk` 回退链；GBK 系*编码*走 `util.TextEncoder`，
+   以真机为准。
+5. `entry/src/main/module.json5` 的 `sendData` skill：不同分享方（如图库/
+   文件管理/浏览器）的 Want 形态不一，`EntryAbility` 已做“全量参数转存 +
+   Index 页多键兼容解析”，解析不到就当普通启动，绝不崩。
+
+`local.properties`（SDK 路径）已进 `.gitignore`，不会提交。

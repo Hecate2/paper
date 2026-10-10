@@ -2,9 +2,17 @@
 
 <img src="icon.png" alt="白纸图标" width="160" height="160" />
 
-轻量安卓文本编辑器：**快速打开、编辑、保存手机内任意文本文件**。
+轻量文本编辑器：**快速打开、编辑、保存手机内任意文本文件**。
 
-零第三方运行时依赖，纯 Java + 框架控件；release APK 约 **64 KiB**。
+本仓库含两套实现，同功能、双平台：
+
+| 平台 | 目录 | 技术 | 产物 |
+|---|---|---|---|
+| Android | `app/`（仓库根 Gradle 工程） | 纯 Java + 框架控件，零第三方运行时依赖 | release APK 约 **64 KiB** |
+| HarmonyOS NEXT | `harmony/`（hvigor 工程，Stage + ArkTS） | ArkTS + ArkUI，零第三方依赖 | HAP（见 `harmony/README.md` 构建） |
+
+下面先讲 Android 版；鸿蒙版的构建/运行/模拟器安装与平台差异说明
+见 [`harmony/README.md`](harmony/README.md)。
 
 ---
 
@@ -43,7 +51,7 @@
 | 第三方运行时依赖 | **无**（无 AndroidX / Material / Compose / 网络库） |
 | 测试依赖 | JUnit 4.13.2（仅 `testImplementation`） |
 
-## 构建
+## 构建（Android）
 
 需要 JDK 17 与 Android SDK（`compileSdk 35`）。
 
@@ -59,7 +67,19 @@ export ANDROID_HOME=/path/to/android-sdk
 `keyPassword`）并提供对应 `release.jks`。二者已被 `.gitignore` 忽略；缺失时 release 仍可构建，
 只是不签名。
 
-## 测试
+## 构建鸿蒙版
+
+```bash
+cd harmony
+cp local.properties.template local.properties  # 填入本机 SDK 路径
+hvigorw assembleHap --mode debug
+```
+
+纯逻辑单测（不需要 SDK）：`cd harmony/tests && node run_core_tests.mjs`。
+完整步骤、模拟器安装与“鸿蒙无所有文件访问权限”等平台差异，
+见 [`harmony/README.md`](harmony/README.md)。
+
+## 测试（Android）
 
 ```bash
 ./gradlew testDebugUnitTest
