@@ -1,5 +1,6 @@
 import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { fitMiddle, textWidthVp } from '../model/UiText.ets';
 import { Prefs } from '../model/Prefs.ets';
 import { FileService } from '../model/FileService.ets';
 import type { BrowserRow, SortField } from '../model/Types.ets';
@@ -49,6 +50,8 @@ struct Browser {
   @State sortDesc: boolean = false;
   @State pickMode: boolean = false;
   @State loading: boolean = false;
+  @State listWidth: number = 0;
+  private loadHintTimer: number = -1;
 
   private prefs: Prefs | null = null;
   private files: FileService | null = null;
@@ -92,13 +95,45 @@ struct Browser {
       dir = f.filesDir();
     }
     this.currentDir = dir;
-    this.loading = true;
+    this.showLoadingHint();
     try {
       this.allRows = await f.listDir(dir);
     } finally {
-      this.loading = false;
+      this.cancelLoadingHint();
     }
     this.applySort();
+  }
+
+  /** 与安卓 LOADING_HINT_MS 一致：读目录超过 150ms 才显示占位行，快速目录不闪。 */
+  private showLoadingHint(): void {
+    this.cancelLoadingHint();
+    this.loadHintTimer = setTimeout((): void => {
+      this.loadHintTimer = -1;
+      this.loading = true;
+    }, 150);
+  }
+
+  private cancelLoadingHint(): void {
+    if (this.loadHintTimer >= 0) {
+      clearTimeout(this.loadHintTimer);
+      this.loadHintTimer = -1;
+    }
+    this.loading = false;
+  }
+
+  /** 行右侧 meta 文本（与安卓 RowAdapter 一致）。 */
+  private rowMetaText(dr: DisplayRow): string {
+    return (dr.isDir ? '文件夹' : formatSize(dr.size)) + ' · ' + formatDate(dr.mtimeMs);
+  }
+
+  /** 行名（安卓 rowName 用 TruncateAt.MIDDLE）：按可用宽度做中间省略。 */
+  private rowNameText(dr: DisplayRow, meta: string): string {
+    const raw: string = (dr.isDir ? '📁 ' : '') + dr.name;
+    if (this.listWidth <= 0 || raw.length <= 12) {
+      return raw;
+    }
+    const avail: number = this.listWidth - 24 - 8 - textWidthVp(meta, 11);
+    return fitMiddle(raw, avail, 15);
   }
 
   private applySort(): void {
@@ -325,109 +360,139 @@ struct Browser {
       .width('100%')
       .height(56);
 
-      // 路径条（搜索时变琥珀色，同安卓 pathView）
+      // 路径条（搜索时变琥珀色，同安卓 pathView：13sp、8dp 内边距、不限行数可换行）
       Text(this.pathBarText())
         .fontSize(13)
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
         .fontColor(this.query.trim() !== '' ? $r('app.color.browser_search_text') : $r('app.color.browser_path_text'))
         .width('100%')
         .padding(8)
         .backgroundColor(this.query.trim() !== '' ? $r('app.color.browser_search_bg') : $r('app.color.browser_path_bg'));
 
       // 工具栏（对齐 activity_browser.xml 的单行顺序：上级/排序/方向/选目录/正则/搜索/清空）
-      Scroll() {
-        Row({ space: 2 }) {
-          Image($r('app.media.ic_arrow_upward_b'))
-            .width(24)
-            .height(24)
-            .margin(8)
-            .id('browserUp')
-            .onClick((): void => {
-              const i: number = this.currentDir.lastIndexOf('/');
-              if (i > 0) {
-                this.currentDir = this.currentDir.substring(0, i);
-                this.query = '';
-                this.reload();
-              }
-            });
-          // 排序字段按钮：安卓是 buttonBarButtonStyle 的 40dp 文字按钮（文字色 = accent
-          // #2196F3、左右 8dp 内边距、minWidth 0），点开 48dp 行高的弹出菜单。
-          Button(this.sortLabel())
-            .type(ButtonType.Normal)
-            .borderRadius(2)
-            .fontSize(13)
-            .fontColor($r('app.color.brand'))
-            .backgroundColor('#00000000')
-            .height(40)
-            .padding({ left: 8, right: 8 })
-            .id('browserSort')
-            .bindMenu(this.sortMenuItems());
+      // 实测安卓：整行 40dp 高、左/右内缩 2dp、控件间零间距；上级与方向钮 40×40dp、
+      // 正则开关 36×36dp（14sp）、搜索框 40dp 高、清空钮 40×40dp（仅有内容时出现）。
+      Row({ space: 0 }) {
+        Column() {
+          Image($r('app.media.ic_arrow_upward_b')).width(24).height(24);
+        }
+        .width(40)
+        .height(40)
+        .justifyContent(FlexAlign.Center)
+        .id('browserUp')
+        .onClick((): void => {
+          const i: number = this.currentDir.lastIndexOf('/');
+          if (i > 0) {
+            this.currentDir = this.currentDir.substring(0, i);
+            this.query = '';
+            this.reload();
+          }
+        });
+        // 排序字段按钮：安卓是 buttonBarButtonStyle 的 40dp 文字按钮（文字色 = accent
+        // #2196F3、左右 8dp 内边距、minWidth 0），点开 48dp 行高的弹出菜单。
+        Button(this.sortLabel())
+          .type(ButtonType.Normal)
+          .borderRadius(2)
+          .fontSize(13)
+          .fontColor($r('app.color.brand'))
+          .backgroundColor('#00000000')
+          .height(40)
+          .padding({ left: 8, right: 8 })
+          .id('browserSort')
+          .bindMenu(this.sortMenuItems());
+        Column() {
           Image(this.sortDesc ? $r('app.media.ic_chevron_down_b') : $r('app.media.ic_chevron_up_b'))
             .width(24)
-            .height(24)
-            .margin(8)
-            .id('browserSortDir')
-            .onClick((): void => {
-              this.sortDesc = !this.sortDesc;
-              this.prefs?.setBrowserSortDesc(this.sortDesc);
-              this.applySort();
-            });
-          if (this.pickMode) {
-            Image($r('app.media.ic_check_b'))
-              .width(24)
-              .height(24)
-              .margin(8)
-              .id('browserPickDir')
-              .onClick((): void => {
-                this.prefs?.recordDirectory(this.currentDir);
-                AppStorage.setOrCreate('paperPickDir', this.currentDir);
-                router.back();
-              });
+            .height(24);
+        }
+        .width(40)
+        .height(40)
+        .justifyContent(FlexAlign.Center)
+        .id('browserSortDir')
+        .onClick((): void => {
+          this.setSortDesc(!this.sortDesc);
+        });
+        if (this.pickMode) {
+          Column() {
+            Image($r('app.media.ic_check_b')).width(24).height(24);
           }
-          Button('.*')
-            .fontSize(14)
-            .fontColor(this.regexMode ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
-            .backgroundColor('#00000000')
-            .id('browserRegex')
-            .onClick((): void => {
-              this.regexMode = !this.regexMode;
-              this.applyFilter();
-            });
-          TextInput({ placeholder: '搜索当前目录…', text: this.query })
-            .layoutWeight(1)
-            .fontSize(14)
-            .id('browserSearch')
-            .onChange((v: string): void => {
-              this.query = v;
-              this.applyFilter();
-            });
-          if (this.query.trim() !== '') {
-            Image($r('app.media.ic_close_b'))
-              .width(24)
-              .height(24)
-              .margin(8)
-              .id('browserClear')
-              .onClick((): void => {
-                this.query = '';
-                this.applyFilter();
-              });
+          .width(40)
+          .height(40)
+          .justifyContent(FlexAlign.Center)
+          .id('browserPickDir')
+          .onClick((): void => {
+            this.prefs?.recordDirectory(this.currentDir);
+            AppStorage.setOrCreate('paperPickDir', this.currentDir);
+            router.back();
+          });
+        }
+        Button('.*', { type: ButtonType.Normal, stateEffect: true })
+          .width(36)
+          .height(36)
+          .padding(0)
+          .borderRadius(0)
+          .fontSize(14)
+          .fontColor(this.regexMode ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
+          .backgroundColor('#00000000')
+          .id('browserRegex')
+          .onClick((): void => {
+            this.regexMode = !this.regexMode;
+            this.applyFilter();
+          });
+        TextInput({ placeholder: '搜索当前目录…', text: this.query })
+          .layoutWeight(1)
+          .constraintSize({ minWidth: 48 })
+          .height(40)
+          .fontSize(14)
+          .borderRadius(0)
+          .backgroundColor('#00000000')
+          .padding({ left: 4, right: 4 })
+          .id('browserSearch')
+          .onChange((v: string): void => {
+            this.query = v;
+            this.applyFilter();
+          });
+        if (this.query.trim() !== '') {
+          Column() {
+            Image($r('app.media.ic_close_b')).width(24).height(24);
           }
-        }.padding({ left: 2, right: 2 });
+          .width(40)
+          .height(40)
+          .justifyContent(FlexAlign.Center)
+          .id('browserClear')
+          .onClick((): void => {
+            this.query = '';
+            this.applyFilter();
+          });
+        }
       }
-      .scrollable(ScrollDirection.Horizontal)
-      .width('100%');
+      .width('100%')
+      .height(40)
+      .padding({ left: 2, right: 2 });
 
       if (this.loading) {
-        LoadingProgress().width(36).height(36).margin({ top: 24 });
+        // 安卓：目录读取超过 150ms 才显示“正在读取…”，且它就是一个普通列表行
+        Row() {
+          Text('正在读取…')
+            .fontSize(15)
+            .fontColor($r('app.color.row_name'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .textAlign(TextAlign.Start);
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 44 })
+        .padding({ left: 12, right: 12, top: 12, bottom: 12 })
+        .id('browserLoading');
       } else {
         List() {
           ForEach(this.rows, (dr: DisplayRow, index: number) => {
             ListItem() {
               if (dr.kind === KIND_ENTRY) {
-                // 对齐 browser_row.xml：名称左（中省略）+ 大小时间右
+                // 对齐 browser_row.xml：minHeight 44dp、左右 12dp 内缩、名称 15sp 且中省略、
+                // 右侧 11sp 灰色 meta（文件夹“文件夹 · 时间”，文件“大小 · 时间”）
                 Row({ space: 8 }) {
-                  Text((dr.isDir ? '📁 ' : '') + dr.name)
+                  Text(this.rowNameText(dr, this.rowMetaText(dr)))
                     .fontSize(15)
                     .fontColor($r('app.color.row_name'))
                     .maxLines(1)
@@ -435,23 +500,33 @@ struct Browser {
                     .layoutWeight(1)
                     .textAlign(TextAlign.Start)
                     .opacity(this.pickMode && !dr.isDir ? 0.4 : 1);
-                  Text((dr.isDir ? '文件夹' : formatSize(dr.size)) + ' · ' + formatDate(dr.mtimeMs))
+                  Text(this.rowMetaText(dr))
                     .fontSize(11)
                     .fontColor($r('app.color.row_meta'))
                     .maxLines(1);
                 }
                 .width('100%')
+                .constraintSize({ minHeight: 44 })
                 .padding({ left: 12, right: 12, top: 12, bottom: 12 })
                 .onClick((): void => {
                   this.onRowClick(dr);
                 });
               } else {
-                Text(dr.text)
-                  .fontSize(14)
-                  .fontColor('#888888')
-                  .width('100%')
-                  .textAlign(TextAlign.Center)
-                  .padding(24);
+                // 空目录/搜索占位/搜索脚注：安卓复用同一个 rowName 文本（15sp #212121、
+                // 左缩 12dp，脚注单行），不是居中的灰色提示
+                Row() {
+                  Text(dr.text)
+                    .fontSize(15)
+                    .fontColor($r('app.color.row_name'))
+                    .maxLines(dr.kind === KIND_FOOTER ? 1 : 20)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                    .textAlign(TextAlign.Start);
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Top)
+                .constraintSize({ minHeight: 44 })
+                .padding({ left: 12, right: 12, top: 12, bottom: 12 });
               }
             }
           }, (dr: DisplayRow): string => {
@@ -461,19 +536,35 @@ struct Browser {
         }
         .layoutWeight(1)
         .width('100%')
+        .onAreaChange((oldArea: Area, newArea: Area): void => {
+          const w: number = Number(newArea.width);
+          if (Math.abs(w - this.listWidth) > 0.5) {
+            this.listWidth = w;
+          }
+        })
         .divider({ strokeWidth: 1, color: '#11000000' });
       }
 
-      // “任意文件…”兜底入口（同安卓“显示全部文件任意后缀”）
-      Button('任意文件…')
-        .fontSize(13)
-        .fontColor($r('app.color.brand'))
-        .backgroundColor('#00000000')
+      // “任意文件…”兑底入口（安卓版直接在真目录里点任意后缀，没这个入口；
+      // 鸿蒙只能列举沙箱目录，所以多给一行走系统 Picker。选择目录模式无此入口，
+      // 与安卓 pickDir 模式只有“选择当前目录”一致。样式对齐安卓列表脚注行。）
+      if (!this.pickMode) {
+        Row() {
+          Text('任意文件…')
+            .fontSize(15)
+            .fontColor($r('app.color.brand'))
+            .maxLines(1)
+            .layoutWeight(1)
+            .textAlign(TextAlign.Start);
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 44 })
+        .padding({ left: 12, right: 12, top: 12, bottom: 12 })
         .id('browserArbitrary')
-        .margin(8)
         .onClick((): void => {
           this.pickArbitrary();
         });
+      }
     }.width('100%').height('100%').backgroundColor($r('app.color.page_bg'));
   }
 }

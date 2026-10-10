@@ -1,4 +1,4 @@
-import { router, promptAction, MeasureText } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -20,6 +20,7 @@ import {
 import { defaultFileName, sanitize, ensureTxtExtension, parentOf } from '../core/SaveNames.ets';
 import { decide } from '../core/StartupDecision.ets';
 import { write as atomicWrite, restoreFromBackup, backupExists } from '../core/AtomicFileOps.ets';
+import { fitMiddle } from '../model/UiText.ets';
 
 /**
  * 编辑器页（对应安卓版 MainActivity）。
@@ -167,37 +168,6 @@ function BarIcon(icon: Resource, enabled: boolean, id: string, onTap: () => void
   .enabled(enabled)
   .id(id)
   .onClick(onTap);
-}
-
-/**
- * 中间省略。安卓标题用自定义 TextView + TruncateAt.MIDDLE，ArkUI 只有尾部省略，
- * 这里按实际宽度用 MeasureText 逐字收缩，复刻“首尾都保留、中间打点”的效果。
- */
-function fitMiddle(text: string, availVp: number, fontSize: number): string {
-  if (availVp <= 8 || text.length < 5) {
-    return text;
-  }
-  try {
-    const maxPx: number = vp2px(availVp);
-    const measure: (s: string) => number = (s: string): number =>
-      MeasureText.measureText({ textContent: s, fontSize: fontSize });
-    if (measure(text) <= maxPx) {
-      return text;
-    }
-    let keep: number = text.length - 1;
-    while (keep > 1) {
-      const left: number = Math.ceil(keep / 2);
-      const cand: string = text.substring(0, left) + '…' +
-        text.substring(text.length - (keep - left));
-      if (measure(cand) <= maxPx) {
-        return cand;
-      }
-      keep--;
-    }
-    return '…';
-  } catch (e) {
-    return text;
-  }
 }
 
 /** 浅色弹出菜单/子菜单的文本色（安卓 primary_text_material_light / disabled 版）。 */
