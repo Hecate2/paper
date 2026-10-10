@@ -257,7 +257,7 @@ struct Browser {
 
   build() {
     Column({ space: 0 }) {
-      // 路径条（搜索时高亮色调，对应安卓 pathBar 行话费）
+      // 路径条（搜索时高亮色调，对应安卓 pathBar）
       Text(this.pathBarText())
         .fontSize(13)
         .maxLines(2)
@@ -266,8 +266,62 @@ struct Browser {
         .padding(8)
         .backgroundColor(this.query.trim() !== '' ? $r('app.color.browser_search_bg') : '#FFF0F0F0');
 
-      // 搜索行
+      // 工具栏（对齐安卓：先导航/排序，再搜索；横向可滚避免窄屏挤压）
+      Scroll() {
+        Row({ space: 8 }) {
+          Button('‹ 返回').fontSize(13).onClick((): void => {
+            router.back();
+          });
+          Button('⬆ 上级').fontSize(13).onClick((): void => {
+            const i: number = this.currentDir.lastIndexOf('/');
+            if (i > 0) {
+              this.currentDir = this.currentDir.substring(0, i);
+              this.query = '';
+              this.reload();
+            }
+          });
+          Select([{ value: '名称' }, { value: '大小' }, { value: '时间' }, { value: '类型' }])
+            .selected(sortIndex(this.sortField))
+            .onSelect((index: number): void => {
+              const fields: SortField[] = ['name', 'size', 'date', 'type'];
+              this.sortField = fields[index];
+              this.prefs?.setBrowserSort(fields[index]);
+              this.applySort();
+            });
+          Button(this.sortDesc ? '⬇ 降序' : '⬆ 升序').fontSize(13).onClick((): void => {
+            this.sortDesc = !this.sortDesc;
+            this.prefs?.setBrowserSortDesc(this.sortDesc);
+            this.applySort();
+          });
+          if (this.pickMode) {
+            Button('选择当前目录').fontSize(13).onClick((): void => {
+              this.prefs?.recordDirectory(this.currentDir);
+              AppStorage.setOrCreate('paperPickDir', this.currentDir);
+              router.back();
+            });
+          } else {
+            Button('新建空文件').fontSize(13).onClick((): void => {
+              this.prefs?.recordDirectory(this.currentDir);
+              AppStorage.setOrCreate('paperNewFile', true);
+              router.back();
+            });
+            Button('任意文件…').fontSize(13).onClick((): void => {
+              this.pickArbitrary();
+            });
+          }
+        }.padding({ left: 8, right: 8, top: 6, bottom: 6 });
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .width('100%');
+
+      // 搜索行：.* 开关在左（同安卓），输入框占满，有内容时才显示清空
       Row({ space: 6 }) {
+        Button('.*').fontSize(13).backgroundColor('#00000000')
+          .fontColor(this.regexMode ? '#2196F3' : '#9E9E9E')
+          .onClick((): void => {
+            this.regexMode = !this.regexMode;
+            this.applyFilter();
+          });
         TextInput({ placeholder: '搜索当前目录…', text: this.query })
           .layoutWeight(1)
           .fontSize(14)
@@ -275,58 +329,11 @@ struct Browser {
             this.query = v;
             this.applyFilter();
           });
-        Button('✕').fontSize(13).onClick((): void => {
-          this.query = '';
-          this.applyFilter();
-        });
-        Button('.*').fontSize(13)
-          .type(this.regexMode ? ButtonType.Capsule : ButtonType.Normal)
-          .onClick((): void => {
-            this.regexMode = !this.regexMode;
-            this.applyFilter();
-          });
-      }.padding({ left: 8, right: 8, top: 6, bottom: 6 });
-
-      // 排序行
-      Row({ space: 8 }) {
-        Button('‹ 返回').fontSize(13).onClick((): void => {
-          router.back();
-        });
-        Button('⬆ 上级').fontSize(13).onClick((): void => {
-          const i: number = this.currentDir.lastIndexOf('/');
-          if (i > 0) {
-            this.currentDir = this.currentDir.substring(0, i);
+        if (this.query.trim() !== '') {
+          Button('✕').fontSize(13).backgroundColor('#00000000')
+            .fontColor('#666666').onClick((): void => {
             this.query = '';
-            this.reload();
-          }
-        });
-        Select([{ value: '名称' }, { value: '大小' }, { value: '时间' }, { value: '类型' }])
-          .selected(sortIndex(this.sortField))
-          .onSelect((index: number): void => {
-            const fields: SortField[] = ['name', 'size', 'date', 'type'];
-            this.sortField = fields[index];
-            this.prefs?.setBrowserSort(fields[index]);
-            this.applySort();
-          });
-        Button(this.sortDesc ? '⬇ 降序' : '⬆ 升序').fontSize(13).onClick((): void => {
-          this.sortDesc = !this.sortDesc;
-          this.prefs?.setBrowserSortDesc(this.sortDesc);
-          this.applySort();
-        });
-        if (this.pickMode) {
-          Button('选择当前目录').fontSize(13).onClick((): void => {
-            this.prefs?.recordDirectory(this.currentDir);
-            AppStorage.setOrCreate('paperPickDir', this.currentDir);
-            router.back();
-          });
-        } else {
-          Button('新建空文件').fontSize(13).onClick((): void => {
-            this.prefs?.recordDirectory(this.currentDir);
-            AppStorage.setOrCreate('paperNewFile', true);
-            router.back();
-          });
-          Button('任意文件…').fontSize(13).onClick((): void => {
-            this.pickArbitrary();
+            this.applyFilter();
           });
         }
       }.padding({ left: 8, right: 8, bottom: 6 });
@@ -338,21 +345,22 @@ struct Browser {
           ForEach(this.rows, (dr: DisplayRow, index: number) => {
             ListItem() {
               if (dr.kind === KIND_ENTRY) {
-                Column({ space: 2 }) {
+                // 单行：名称在左，大小/时间在右（同安卓 browser_row.xml）
+                Row({ space: 8 }) {
                   Text((dr.isDir ? '📁 ' : '') + dr.name)
                     .fontSize(15)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
+                    .layoutWeight(1)
+                    .textAlign(TextAlign.Start)
                     .opacity(this.pickMode && !dr.isDir ? 0.4 : 1);
                   Text((dr.isDir ? '文件夹' : formatSize(dr.size)) + ' · ' + formatDate(dr.mtimeMs))
-                    .fontSize(12)
-                    .fontColor('#888888')
-                    .width('100%');
+                    .fontSize(11)
+                    .fontColor('#FF9E9E9E')
+                    .maxLines(1);
                 }
-                .alignItems(HorizontalAlign.Start)
                 .width('100%')
-                .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                .padding({ left: 12, right: 12, top: 12, bottom: 12 })
                 .onClick((): void => {
                   this.onRowClick(dr);
                 });
@@ -365,7 +373,10 @@ struct Browser {
                   .padding(24);
               }
             }
-          }, (dr: DisplayRow, index: number) => index + '_' + dr.kind + '_' + dr.text);
+          }, (dr: DisplayRow): string => {
+            // 键必须包含内容：否则搜索过滤后同一位置的旧行不会刷新
+            return dr.kind + '|' + (dr.kind === KIND_ENTRY ? dr.name : dr.text);
+          });
         }
         .layoutWeight(1)
         .width('100%');
