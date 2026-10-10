@@ -19,3 +19,11 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# HarmonyOS (harmony/ is the HarmonyOS NEXT port, hvigor-based)
+harmony/local.properties
+harmony/.hvigor/
+harmony/**/build/
+harmony/**/oh_modules/
+harmony/**/ohosTest/outputs/
+harmony/tests/.tmp/

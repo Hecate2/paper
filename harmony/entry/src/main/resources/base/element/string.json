@@ -1,0 +1,80 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "白纸"
+    },
+    {
+      "name": "module_desc",
+      "value": "轻量文本编辑器"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "编辑器入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "白纸"
+    },
+    {
+      "name": "menu_new",
+      "value": "新建"
+    },
+    {
+      "name": "menu_open",
+      "value": "打开"
+    },
+    {
+      "name": "menu_save",
+      "value": "保存"
+    },
+    {
+      "name": "menu_save_as",
+      "value": "另存为"
+    },
+    {
+      "name": "menu_close",
+      "value": "关闭文件"
+    },
+    {
+      "name": "menu_rename",
+      "value": "重命名"
+    },
+    {
+      "name": "menu_find",
+      "value": "查找替换"
+    },
+    {
+      "name": "menu_encoding",
+      "value": "编码"
+    },
+    {
+      "name": "menu_restore_backup",
+      "value": "恢复备份"
+    },
+    {
+      "name": "menu_settings",
+      "value": "设置"
+    },
+    {
+      "name": "find_hint",
+      "value": "查找…"
+    },
+    {
+      "name": "replace_hint",
+      "value": "替换为…"
+    },
+    {
+      "name": "readonly_banner",
+      "value": "只读模式：此位置无法写入，保存已禁用"
+    },
+    {
+      "name": "browser_title",
+      "value": "选择文件"
+    },
+    {
+      "name": "settings_title",
+      "value": "设置"
+    }
+  ]
+}

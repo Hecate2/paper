@@ -1,0 +1,40 @@
+{
+  "color": [
+    {
+      "name": "brand",
+      "value": "#0A59F7"
+    },
+    {
+      "name": "current_line",
+      "value": "#FFF5F5F5"
+    },
+    {
+      "name": "gutter_bg",
+      "value": "#FFF0F0F0"
+    },
+    {
+      "name": "gutter_text",
+      "value": "#FF999999"
+    },
+    {
+      "name": "find_highlight",
+      "value": "#55FFEB3B"
+    },
+    {
+      "name": "find_current",
+      "value": "#554CAF50"
+    },
+    {
+      "name": "banner_bg",
+      "value": "#FFFFF3CD"
+    },
+    {
+      "name": "banner_text",
+      "value": "#FF664D03"
+    },
+    {
+      "name": "browser_search_bg",
+      "value": "#FFFFF3CD"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "白纸"
+    },
+    {
+      "name": "module_desc",
+      "value": "轻量文本编辑器"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "编辑器入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "白纸"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Paper editor entry module (HAP).",
+  "main": "index.ets",
+  "author": "hecate2",
+  "license": "MIT",
+  "dependencies": {}
+}
