@@ -173,9 +173,9 @@ export class FileService {
     }
   }
 
-  /** 写字节到 Picker save() 返回的 URI（覆盖）。 */
+  /** 写字节到 Picker 返回的 URI（覆盖；TRUNC 防止新内容比旧内容短时留下尾部残字节）。 */
   async writeUri(uri: string, data: Uint8Array): Promise<void> {
-    const file = await fs.open(uri, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
+    const file = await fs.open(uri, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     try {
       let off: number = 0;
       while (off < data.length) {

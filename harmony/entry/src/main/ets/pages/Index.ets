@@ -1,6 +1,7 @@
 import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Prefs } from '../model/Prefs.ets';
 import { FileService } from '../model/FileService.ets';
 import { UtilTextCodecs } from '../model/TextCodecs.ets';
@@ -42,6 +43,8 @@ import { write as atomicWrite, restoreFromBackup, backupExists } from '../core/A
 
 const FIND_DEBOUNCE_MS: number = 150;
 const VIEWER_LINE_CAP: number = 50000;
+const DOMAIN: number = 0xFF00;
+const TAG: string = 'PaperIndex';
 
 @CustomDialog
 struct SaveDialogContent {
@@ -162,26 +165,28 @@ struct Index {
   private pendingShareText: string | null = null;
   private pendingShareUri: string | null = null;
   private pendingSaveName: string = '';
+  /** 行首偏移缓存：内容变化时置空，读取时重建（对应安卓 buildLineStarts）。 */
+  private lineStartsCache: number[] | null = null;
+  /** Ability 上下文：注册/注销运行中分享事件、返回退出时用。 */
+  private abilityCtx: common.UIAbilityContext | null = null;
 
   aboutToAppear(): void {
     const ctx = getContext(this) as common.UIAbilityContext;
+    this.abilityCtx = ctx;
     this.prefs = new Prefs(ctx);
     this.files = new FileService(ctx);
     this.codecs = new UtilTextCodecs();
     this.applySettings();
+    // 应用运行中再次收到分享（onNewWant）时，EntryAbility 经 eventHub 通知这里
+    try {
+      ctx.eventHub.on('paperShareArrived', (): void => {
+        this.consumeShareNow();
+      });
+    } catch (e) {
+      // ignore
+    }
     this.consumeShare();
-    if (this.pendingShareUri !== null || this.pendingShareText !== null) {
-      const uri: string | null = this.pendingShareUri;
-      const text: string | null = this.pendingShareText;
-      this.pendingShareUri = null;
-      this.pendingShareText = null;
-      if (uri !== null) {
-        this.openUri(uri);
-      } else {
-        this.resetToScratch(text);
-        this.toast('已粘贴分享的文本（未保存）');
-      }
-    } else {
+    if (!this.takePendingShare()) {
       this.routeStartup();
     }
     this.autoTimer = setInterval((): void => {
@@ -191,6 +196,14 @@ struct Index {
 
   aboutToDisappear(): void {
     this.recordCaretLine();
+    const ctx: common.UIAbilityContext | null = this.abilityCtx;
+    if (ctx !== null) {
+      try {
+        ctx.eventHub.off('paperShareArrived');
+      } catch (e) {
+        // ignore
+      }
+    }
     if (this.autoTimer >= 0) {
       clearInterval(this.autoTimer);
       this.autoTimer = -1;
@@ -208,7 +221,12 @@ struct Index {
       const openPath: string = AppStorage.get<string>('paperOpenPath') ?? '';
       if (openPath !== '') {
         AppStorage.setOrCreate('paperOpenPath', '');
-        this.openPath(openPath, -1);
+        if (openPath.indexOf('://') >= 0) {
+          // 系统选择器给的是 URI（file://docs/… 等），走 URI 打开与覆盖写
+          this.openUri(openPath);
+        } else {
+          this.openPath(openPath, -1);
+        }
         return;
       }
       const newFile: boolean = AppStorage.get<boolean>('paperNewFile') ?? false;
@@ -227,6 +245,37 @@ struct Index {
     } catch (e) {
       // ignore
     }
+  }
+
+  /** 页面隐藏（进浏览器/设置或退到后台）时记住光标行（对应安卓 onStop）。 */
+  onPageHide(): void {
+    this.recordCaretLine();
+  }
+
+  /**
+   * 系统返回键：先关查找栏，再有未保存修改则确认，否则交回系统退出
+   * （对应安卓 onBackPressed 的 findBar → dirty 判定顺序）。
+   */
+  onBackPress(): boolean {
+    hilog.info(DOMAIN, TAG, 'onBackPress findOpen=%{public}s dirty=%{public}s',
+      String(this.findOpen), String(this.dirty));
+    if (this.findOpen) {
+      this.findOpen = false;
+      this.clearMatches();
+      return true;
+    }
+    if (this.dirty) {
+      this.confirmDiscardThen((): void => {
+        this.recordCaretLine();
+        const ctx: common.UIAbilityContext | null = this.abilityCtx;
+        if (ctx !== null) {
+          ctx.terminateSelf();
+        }
+      });
+      return true;
+    }
+    this.recordCaretLine();
+    return false;
   }
 
   // ---- 设置应用 ----
@@ -264,7 +313,7 @@ struct Index {
     );
     if (target === 'openFile') {
       const line: number = p.rememberLastLine() ? p.lineFor(lastFile) : -1;
-      if (lastFile.indexOf('://') >= 0 && !lastFile.startsWith('file://')) {
+      if (lastFile.indexOf('://') >= 0) {
         this.openUri(lastFile);
       } else {
         this.openPath(lastFile, line);
@@ -288,6 +337,13 @@ struct Index {
       AppStorage.setOrCreate('paperHasShare', false);
       const raw: string = AppStorage.get<string>('paperShareParams') ?? '{}';
       AppStorage.setOrCreate('paperShareParams', '{}');
+      // viewData 的目标文件在 want.uri（EntryAbility 单独转存），优先于参数扫描
+      const directUri: string = AppStorage.get<string>('paperShareUri') ?? '';
+      AppStorage.setOrCreate('paperShareUri', '');
+      if (directUri !== '') {
+        this.pendingShareUri = directUri;
+        return;
+      }
       const params = JSON.parse(raw) as Record<string, string | string[]>;
       const texts: string[] = [];
       const uris: string[] = [];
@@ -319,6 +375,40 @@ struct Index {
     }
   }
 
+  /** 打开并清空暂存的分享内容；无分享内容时返回 false。 */
+  private takePendingShare(): boolean {
+    const uri: string | null = this.pendingShareUri;
+    const text: string | null = this.pendingShareText;
+    if (uri === null && text === null) {
+      return false;
+    }
+    this.pendingShareUri = null;
+    this.pendingShareText = null;
+    if (uri !== null) {
+      this.openUri(uri);
+    } else {
+      this.resetToScratch(text);
+      this.toast('已粘贴分享的文本（未保存）');
+    }
+    return true;
+  }
+
+  /** 运行中收到的新分享：有未保存修改先确认，再消费（对应安卓 handleShareIntent）。 */
+  private consumeShareNow(): void {
+    this.consumeShare();
+    if (this.pendingShareUri === null && this.pendingShareText === null) {
+      return;
+    }
+    const next: () => void = (): void => {
+      this.takePendingShare();
+    };
+    if (this.dirty) {
+      this.confirmDiscardThen(next);
+      return;
+    }
+    next();
+  }
+
   private resetToScratch(initialText: string | null): void {
     this.mode = 'scratch';
     this.fileKey = '';
@@ -333,6 +423,7 @@ struct Index {
     this.viewerLines = [];
     this.viewerCapped = false;
     this.content = initialText === null ? '' : initialText;
+    this.invalidateLines();
     this.caretLine = 0;
     this.clearMatches();
     try {
@@ -351,7 +442,8 @@ struct Index {
     if (f === null || p === null || codecs === null || path === '') {
       return;
     }
-    if (path.startsWith('file://')) {
+    if (path.startsWith('file:///')) {
+      // file:///sdcard/x 这类本地 URI 才是真路径；file://docs/… 是选择器 URI，原样交给 fs
       path = path.substring(7);
     }
     const st = await f.statInfo(path);
@@ -455,7 +547,7 @@ struct Index {
     } else if (uri !== null) {
       this.mode = 'uri';
       this.fileKey = uri;
-      this.fileName = '分享文件';
+      this.fileName = baseName(uri);
     } else {
       this.mode = 'scratch';
       this.fileKey = '';
@@ -463,6 +555,7 @@ struct Index {
     }
     if (allowsSave(tier) && !binary) {
       this.content = text;
+      this.invalidateLines();
       this.viewerLines = [];
       this.caretLine = 0;
       setTimeout((): void => {
@@ -476,6 +569,8 @@ struct Index {
       this.viewerLines = splitCapped(text);
       this.viewerCapped = this.viewerLines.length >= VIEWER_LINE_CAP;
       this.content = text;
+      this.invalidateLines();
+      this.caretLine = 0;
     }
     let bannerText: string | null = readOnlyReason(tier, binary);
     if (bannerText === null && truncated) {
@@ -760,8 +855,8 @@ struct Index {
     if (f === null || p === null || codecs === null) {
       return;
     }
-    // Picker URI（或沙箱外）走覆盖写；沙箱路径走原子写+.bak
-    const isUri: boolean = target.indexOf('://') >= 0 && !target.startsWith('file://');
+    // 任何带 scheme 的 URI（选择器给的 file://docs/… 等）走覆盖写；沙箱真路径走原子写+.bak
+    const isUri: boolean = target.indexOf('://') >= 0;
     const data: Uint8Array = codecs.encode(this.content, this.encoding);
     if (userInitiated) {
       this.showLoading('正在保存…');
@@ -770,8 +865,7 @@ struct Index {
       if (isUri) {
         await f.writeUri(target, data);
       } else {
-        const realPath: string = target.startsWith('file://') ? target.substring(7) : target;
-        await atomicWrite(f.atomic(), realPath, data);
+        await atomicWrite(f.atomic(), target, data);
       }
       const st = await f.statInfo(target);
       this.mode = 'file';
@@ -837,10 +931,7 @@ struct Index {
   }
 
   private async restoreBackup(): Promise<void> {
-    let key: string = this.fileKey;
-    if (key.startsWith('file://')) {
-      key = key.substring(7);
-    }
+    const key: string = this.fileKey;
     if (this.mode !== 'file' || key === '' || key.indexOf('://') >= 0) {
       this.toast('只有已保存的文件才有备份');
       return;
@@ -884,6 +975,26 @@ struct Index {
 
   private currentText(): string {
     return this.content;
+  }
+
+  /** 开关查找栏；打开时聚焦查找框并立即重跑（对应安卓 toggleFindBar）。 */
+  private toggleFindBar(): void {
+    const show: boolean = !this.findOpen;
+    this.findOpen = show;
+    if (show) {
+      if (this.query !== '') {
+        this.runFindNow();
+      }
+      setTimeout((): void => {
+        try {
+          this.getUIContext().getFocusController().requestFocus('findInput');
+        } catch (e) {
+          // ignore
+        }
+      }, 50);
+    } else {
+      this.clearMatches();
+    }
   }
 
   private scheduleFind(): void {
@@ -953,17 +1064,16 @@ struct Index {
     this.matchIndex = ((index % total) + total) % total;
     this.matchInfo = this.matchIndex + 1 + '/' + total;
     const start: number = this.matches[this.matchIndex * 2];
+    const end: number = this.matches[this.matchIndex * 2 + 1];
+    this.caretLine = lineOf(this.cachedLineStarts(), start);
     if (this.readOnly) {
-      // 只读预览：滚到命中所在行并高亮该行
-      const line: number = lineOf(buildLineStarts(this.content), start);
-      this.viewerScroller.scrollToIndex(Math.min(line, this.viewerLines.length - 1));
-      this.caretLine = line;
+      // 只读预览：滚到命中所在行（该行以当前行高亮标出）
+      this.viewerScroller.scrollToIndex(Math.min(this.caretLine, this.viewerLines.length - 1));
       return;
     }
-    const end: number = this.matches[this.matchIndex * 2 + 1];
-    this.caretLine = lineOf(buildLineStarts(this.content), start);
+    // 选中当前命中（对应安卓 setSelection(end, start)）
     try {
-      this.ctl.caretPosition(end);
+      this.ctl.setTextSelection(start, end);
     } catch (e) {
       // ignore
     }
@@ -986,6 +1096,7 @@ struct Index {
       : replaceRange(this.content, start, end, this.replacement);
     const caret: number = Math.min(start + this.replacement.length, newText.length);
     this.content = newText;
+    this.invalidateLines();
     this.markDirty();
     try {
       this.ctl.caretPosition(caret);
@@ -1012,6 +1123,7 @@ struct Index {
       return;
     }
     this.content = newText;
+    this.invalidateLines();
     this.markDirty();
     try {
       this.ctl.caretPosition(0);
@@ -1041,6 +1153,7 @@ struct Index {
         ? (await importCharsetOf(raw, codecs))
         : chosen;
       this.content = stripBom(codecs.decode(raw, charset), charset);
+      this.invalidateLines();
       this.encoding = charset;
       this.clearMatches();
       return;
@@ -1061,6 +1174,7 @@ struct Index {
         ? (await importCharsetOf(data, codecs))
         : chosen;
       this.content = stripBom(codecs.decode(data, charset), charset);
+      this.invalidateLines();
       this.encoding = charset;
       this.viewerLines = this.readOnly ? splitCapped(this.content) : [];
       this.clearMatches();
@@ -1074,14 +1188,20 @@ struct Index {
   // ---- 行号/杂项 ----
 
   private lineCount(): number {
-    let n: number = 1;
-    const t: string = this.content;
-    for (let i: number = 0; i < t.length; i++) {
-      if (t.charAt(i) === '\n') {
-        n++;
-      }
+    return this.cachedLineStarts().length - 1;
+  }
+
+  /** 行首偏移表（内容变化后重建，见 invalidateLines）。 */
+  private cachedLineStarts(): number[] {
+    if (this.lineStartsCache === null) {
+      this.lineStartsCache = buildLineStarts(this.content);
     }
-    return n;
+    return this.lineStartsCache;
+  }
+
+  /** content 每次变化都要调用，否则行号/光标行会读到旧表。 */
+  private invalidateLines(): void {
+    this.lineStartsCache = null;
   }
 
   private markDirty(): void {
@@ -1132,8 +1252,8 @@ struct Index {
   build() {
     Stack() {
       Column({ space: 0 }) {
-        // 标题（可点击重命名，对应安卓 clickable title）
-        Text((this.dirty ? '• ' : '') + this.fileName + ' · ' + this.encoding)
+        // 标题（可点击重命名，对应安卓 clickable title；“ •” 标记未保存）
+        Text(this.dirty ? this.fileName + ' •' : this.fileName)
           .fontSize(17)
           .fontWeight(FontWeight.Medium)
           .maxLines(1)
@@ -1145,9 +1265,18 @@ struct Index {
             this.actionRename();
           });
 
-        // 工具栏（放顶部：对应安卓顶栏菜单；放底部会被输入法盖住）
+        // 顶栏（对应安卓 actionBar：先三个常用动作，其余为菜单项，左右顺序一致）
         Scroll() {
           Row({ space: 8 }) {
+            Button('关闭').fontSize(13).onClick((): void => {
+              this.actionClose();
+            });
+            Button('保存').fontSize(13).enabled(!this.readOnly).onClick((): void => {
+              this.actionSave();
+            });
+            Button('查找').fontSize(13).onClick((): void => {
+              this.toggleFindBar();
+            });
             Button('新建').fontSize(13).onClick((): void => {
               if (this.dirty) {
                 this.confirmDiscardThen((): void => {
@@ -1170,12 +1299,6 @@ struct Index {
                 openBrowser();
               }
             });
-            Button('保存').fontSize(13).enabled(!this.readOnly).onClick((): void => {
-              this.actionSave();
-            });
-            Button('关闭').fontSize(13).onClick((): void => {
-              this.actionClose();
-            });
             Button('重命名').fontSize(13)
               .enabled(this.mode === 'file' && !this.readOnly)
               .onClick((): void => {
@@ -1184,18 +1307,6 @@ struct Index {
             Button('另存为').fontSize(13).enabled(!this.readOnly).onClick((): void => {
               this.actionSaveAs();
             });
-            Button('查找').fontSize(13).onClick((): void => {
-              this.findOpen = !this.findOpen;
-              if (this.findOpen && this.query !== '') {
-                this.runFindNow();
-              }
-              if (!this.findOpen) {
-                this.clearMatches();
-              }
-            });
-            Button('备份').fontSize(13).enabled(this.mode === 'file').onClick((): void => {
-              this.restoreBackup();
-            });
             Select(USER_CHOICES.map((c: string): SelectOption => {
               return { value: labelOf(c) };
             }))
@@ -1203,6 +1314,9 @@ struct Index {
               .onSelect((index: number): void => {
                 this.onEncodingChosen(USER_CHOICES[index]);
               });
+            Button('备份').fontSize(13).enabled(this.mode === 'file').onClick((): void => {
+              this.restoreBackup();
+            });
             Button('设置').fontSize(13).onClick((): void => {
               router.pushUrl({ url: 'pages/Settings' });
             });
@@ -1231,24 +1345,52 @@ struct Index {
             .padding(8);
         }
 
-        // 查找替换栏
+        // 查找替换栏（行 1：查询 + 计数 + 上/下 + 三个开关；行 2：替换 + 替换/全部 + 关闭）
         if (this.findOpen) {
           Column({ space: 6 }) {
             Row({ space: 6 }) {
               TextInput({ placeholder: '查找…', text: this.query })
+                .id('findInput')
                 .layoutWeight(1)
                 .fontSize(14)
                 .onChange((v: string): void => {
                   this.query = v;
                   this.scheduleFind();
+                })
+                .onSubmit((): void => {
+                  if (this.matches.length > 0) {
+                    this.gotoMatch(this.matchIndex + 1);
+                  } else {
+                    this.runFindNow();
+                  }
                 });
               Text(this.matchInfo).fontSize(12).fontColor('#666666');
-              Button('上').fontSize(13).onClick((): void => {
+              Button('▲').fontSize(13).backgroundColor('#00000000')
+                .fontColor('#666666').onClick((): void => {
                 this.gotoMatch(this.matchIndex - 1);
               });
-              Button('下').fontSize(13).onClick((): void => {
+              Button('▼').fontSize(13).backgroundColor('#00000000')
+                .fontColor('#666666').onClick((): void => {
                 this.gotoMatch(this.matchIndex + 1);
               });
+              Button('Aa').fontSize(13).backgroundColor('#00000000')
+                .fontColor(this.caseSens ? '#2196F3' : '#9E9E9E')
+                .onClick((): void => {
+                  this.caseSens = !this.caseSens;
+                  this.runFindNow();
+                });
+              Button('.*').fontSize(13).backgroundColor('#00000000')
+                .fontColor(this.useRegex ? '#2196F3' : '#9E9E9E')
+                .onClick((): void => {
+                  this.useRegex = !this.useRegex;
+                  this.runFindNow();
+                });
+              Button('[w]').fontSize(13).backgroundColor('#00000000')
+                .fontColor(this.wholeWord ? '#2196F3' : '#9E9E9E')
+                .onClick((): void => {
+                  this.wholeWord = !this.wholeWord;
+                  this.runFindNow();
+                });
             }
             Row({ space: 6 }) {
               TextInput({ placeholder: '替换为…', text: this.replacement })
@@ -1263,27 +1405,9 @@ struct Index {
               Button('全部').fontSize(13).onClick((): void => {
                 this.replaceAll();
               });
-              Button('Aa').fontSize(13)
-                .type(this.caseSens ? ButtonType.Capsule : ButtonType.Normal)
-                .onClick((): void => {
-                  this.caseSens = !this.caseSens;
-                  this.runFindNow();
-                });
-              Button('.*').fontSize(13)
-                .type(this.useRegex ? ButtonType.Capsule : ButtonType.Normal)
-                .onClick((): void => {
-                  this.useRegex = !this.useRegex;
-                  this.runFindNow();
-                });
-              Button('[w]').fontSize(13)
-                .type(this.wholeWord ? ButtonType.Capsule : ButtonType.Normal)
-                .onClick((): void => {
-                  this.wholeWord = !this.wholeWord;
-                  this.runFindNow();
-                });
-              Button('✕').fontSize(13).onClick((): void => {
-                this.findOpen = false;
-                this.clearMatches();
+              Button('✕').fontSize(13).backgroundColor('#00000000')
+                .fontColor('#666666').onClick((): void => {
+                this.toggleFindBar();
               });
             }
           }
@@ -1301,8 +1425,16 @@ struct Index {
             .onChange((v: string): void => {
               if (v !== this.content) {
                 this.content = v;
+                this.invalidateLines();
                 this.markDirty();
                 this.scheduleFind();
+              }
+            })
+            .onTextSelectionChange((start: number, end: number): void => {
+              // 用户点选/拖选光标后同步光标行（安卓版在 EditText 里做同样的事）
+              const line: number = lineOf(this.cachedLineStarts(), start);
+              if (line !== this.caretLine) {
+                this.caretLine = line;
               }
             });
         } else {

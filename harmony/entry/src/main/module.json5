@@ -28,6 +28,34 @@
             ],
             "actions": [
               "ohos.want.action.sendData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "type": "*/*"
+              },
+              {
+                "scheme": "content",
+                "type": "*/*"
+              }
+            ]
+          },
+          {
+            "entities": [
+              "entity.system.default"
+            ],
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "type": "*/*"
+              },
+              {
+                "scheme": "content",
+                "type": "*/*"
+              }
             ]
           }
         ]

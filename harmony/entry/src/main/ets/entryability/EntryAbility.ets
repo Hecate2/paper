@@ -27,6 +27,12 @@ export default class EntryAbility extends UIAbility {
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, 'onNewWant');
     this.rememberShareWant(want);
+    // 应用已在运行：通知编辑器页立刻消费这次分享（对应安卓 onNewIntent）
+    try {
+      this.context.eventHub.emit('paperShareArrived');
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'emit paperShareArrived failed: %{public}s', String(e));
+    }
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
@@ -67,6 +73,9 @@ export default class EntryAbility extends UIAbility {
       AppStorage.setOrCreate('paperHasShare', true);
       AppStorage.setOrCreate('paperShareAction', action);
       AppStorage.setOrCreate('paperShareParams', JSON.stringify(params));
+      // viewData 把目标文件放在 want.uri，不在 parameters 里，单独存一份
+      const uri: string = (want.uri as string) ?? '';
+      AppStorage.setOrCreate('paperShareUri', uri);
       hilog.info(DOMAIN, TAG, 'share want remembered');
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'rememberShareWant failed: %{public}s', String(e));
