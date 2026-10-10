@@ -1,9 +1,36 @@
 {
-  "modelVersion": "5.0.0",
-  "description": "Paper on HarmonyOS NEXT: lightweight text editor.",
-  "dependencies": {},
-  "devDependencies": {
-    "@ohos/hypium": "1.0.25",
-    "@ohos/hamock": "1.0.0"
-  }
+  "app": {
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
 }

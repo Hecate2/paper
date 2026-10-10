@@ -5,6 +5,10 @@
       "value": "#0A59F7"
     },
     {
+      "name": "white",
+      "value": "#FFFFFF"
+    },
+    {
       "name": "current_line",
       "value": "#FFF5F5F5"
     },

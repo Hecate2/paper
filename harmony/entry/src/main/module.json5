@@ -19,7 +19,7 @@
         "icon": "$media:app_icon",
         "label": "$string:EntryAbility_label",
         "startWindowIcon": "$media:app_icon",
-        "startWindowBackground": "#FFFFFF",
+        "startWindowBackground": "$color:white",
         "exported": true,
         "skills": [
           {

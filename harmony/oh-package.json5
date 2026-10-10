@@ -4,6 +4,7 @@
   "description": "Paper text editor ported to HarmonyOS NEXT.",
   "author": "hecate2",
   "license": "MIT",
+  "modelVersion": "5.0.0",
   "dependencies": {},
   "devDependencies": {
     "@ohos/hypium": "1.0.25"
