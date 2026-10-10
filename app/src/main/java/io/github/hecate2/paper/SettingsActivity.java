@@ -42,6 +42,9 @@ public class SettingsActivity extends Activity {
 
         // --- startup mode ---
         RadioGroup startup = findViewById(R.id.startupGroup);
+        CheckBox rememberLine = findViewById(R.id.rememberLineCheck);
+        rememberLine.setChecked(prefs.rememberLastLine());
+        rememberLine.setOnCheckedChangeListener((b, checked) -> prefs.setRememberLastLine(checked));
         String mode = prefs.startupMode();
         if (StartupDecision.MODE_NEW_EMPTY.equals(mode)) {
             startup.check(R.id.startupNew);
@@ -50,7 +53,9 @@ public class SettingsActivity extends Activity {
         } else {
             startup.check(R.id.startupFile);
         }
+        rememberLine.setEnabled(StartupDecision.MODE_LAST_FILE.equals(mode));
         startup.setOnCheckedChangeListener((group, checkedId) -> {
+            boolean lastFile = checkedId == R.id.startupFile;
             if (checkedId == R.id.startupNew) {
                 prefs.setStartupMode(StartupDecision.MODE_NEW_EMPTY);
             } else if (checkedId == R.id.startupDir) {
@@ -58,6 +63,8 @@ public class SettingsActivity extends Activity {
             } else {
                 prefs.setStartupMode(StartupDecision.MODE_LAST_FILE);
             }
+            // The caret-memory switch only does anything when the last file is reopened.
+            rememberLine.setEnabled(lastFile);
         });
 
         // --- autosave interval (any number of seconds; 0 = off) ---

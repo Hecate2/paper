@@ -172,6 +172,14 @@ public class MainActivity extends Activity {
         applyEditorSettings();
     }
 
+    @Override
+    protected void onStop() {
+        // Leaving the app (or switching to the browser) is the natural moment to note
+        // where the caret was, so a later launch can jump back to the same spot.
+        recordCaretLine();
+        super.onStop();
+    }
+
     // ---------------------------------------------------------------- startup
 
     private void routeStartup(Intent intent) {
@@ -182,7 +190,7 @@ public class MainActivity extends Activity {
                 prefs.startupMode(), prefs.lastFilePath(), prefs.lastIsScratch(), prefs.lastDirectory());
         switch (target) {
             case OPEN_FILE:
-                openPath(prefs.lastFilePath());
+                openPath(prefs.lastFilePath(), restoreLineFor(prefs.lastFilePath()));
                 break;
             case BROWSER:
                 startBrowser(prefs.lastDirectory(), false);
@@ -284,6 +292,14 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- opening
 
     private void openPath(String path) {
+        openPath(path, -1);
+    }
+
+    /**
+     * @param restoreLine 0-based line to put the caret on once loaded, or -1 to leave it at
+     *                    the top. Only honoured for files opened in the editable editor.
+     */
+    private void openPath(String path, int restoreLine) {
         if (path == null || path.isEmpty()) {
             resetToScratch(null);
             return;
@@ -318,6 +334,7 @@ public class MainActivity extends Activity {
                 main.post(() -> {
                     hideProgress();
                     applyLoadedText(text, lineStarts, path, null, charset, tier, binary, truncated);
+                    restoreCaretLine(lineStarts, restoreLine);
                     lastKnownMtime = mtime;
                     conflictNotified = false;
                     prefs.recordOpened(path, false);
@@ -421,6 +438,48 @@ public class MainActivity extends Activity {
         viewer.setVisibility(View.GONE);
     }
 
+    /** The remembered caret line to restore for {@code path}, or -1 when that is off. */
+    private int restoreLineFor(String path) {
+        return prefs.rememberLastLine() ? prefs.lineFor(path) : -1;
+    }
+
+    /** 0-based logical line the caret sits on; wrapped rows count as one line. */
+    private int currentLine() {
+        int pos = Math.max(0, editor.getSelectionStart());
+        CharSequence text = editor.getText();
+        int line = 0;
+        for (int i = 0; i < pos && i < text.length(); i++) {
+            if (text.charAt(i) == '\n') {
+                line++;
+            }
+        }
+        return line;
+    }
+
+    /** Remembers where the caret was, so the next launch can jump straight back there. */
+    private void recordCaretLine() {
+        if (mode != Mode.FILE || filePath == null || readOnly || !prefs.rememberLastLine()) {
+            return;
+        }
+        prefs.recordLine(filePath, currentLine());
+    }
+
+    /**
+     * Puts the caret back on {@code line} after a load. {@code line <= 0} (nothing
+     * remembered, or the very first line) and out-of-range values are no-ops.
+     */
+    private void restoreCaretLine(int[] lineStarts, int line) {
+        if (line <= 0 || line >= lineStarts.length || editor.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        int offset = lineStarts[line];
+        if (offset <= editor.getText().length()) {
+            editor.setSelection(offset);
+            // Scrolling is deferred by the framework until the (re)layout is done.
+            editor.bringPointIntoView(offset);
+        }
+    }
+
     private void showViewer(String text, int[] lineStarts) {
         editor.setVisibility(View.GONE);
         viewer.setVisibility(View.VISIBLE);
@@ -502,7 +561,9 @@ public class MainActivity extends Activity {
      * browser is started for result, so picking a file (or 新建) comes straight back here.
      */
     private void doClose() {
-        // Remember "nothing open" so the LAST_FILE startup mode does not reopen it.
+        // Remember the caret before the file is dropped, then "nothing open" so the
+        // LAST_FILE startup mode does not reopen it.
+        recordCaretLine();
         prefs.recordOpened(null, true);
         resetToScratch(null);
         startBrowser(prefs.lastDirectory(), false);

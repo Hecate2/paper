@@ -41,6 +41,15 @@
                 android:text="@string/settings_startup_dir" />
         </RadioGroup>
 
+        <!-- Only meaningful together with "上次打开的文件", so it follows that choice. -->
+        <CheckBox
+            android:id="@+id/rememberLineCheck"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="@string/settings_remember_line"
+            android:textSize="14sp" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

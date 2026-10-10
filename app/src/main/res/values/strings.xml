@@ -73,6 +73,7 @@
     <string name="settings_startup_new">新的空文件</string>
     <string name="settings_startup_file">上次打开的文件</string>
     <string name="settings_startup_dir">上次使用的目录</string>
+    <string name="settings_remember_line">记住上次编辑的行号</string>
     <string name="settings_autosave">自动保存间隔</string>
     <string name="settings_autosave_unit">s</string>
     <string name="settings_autosave_note">0 = 关闭</string>

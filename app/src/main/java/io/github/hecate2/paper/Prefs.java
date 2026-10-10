@@ -16,6 +16,9 @@ public final class Prefs {
     public static final String KEY_LAST_IS_SCRATCH = "lastIsScratch";
     public static final String KEY_STARTUP_MODE = "startupMode";
     public static final String KEY_AUTOSAVE_SEC = "autosaveIntervalSec";
+    public static final String KEY_REMEMBER_LINE = "rememberLastLine";
+    public static final String KEY_LAST_LINE = "lastLine";
+    public static final String KEY_LAST_LINE_PATH = "lastLinePath";
     public static final String KEY_FONT_SIZE = "fontSizeSp";
     public static final String KEY_SHOW_LINE_NUMBERS = "showLineNumbers";
     public static final String KEY_WORD_WRAP = "wordWrap";
@@ -27,6 +30,8 @@ public final class Prefs {
     /** Font size the editor accepts, in sp. The upper end is deliberately generous. */
     public static final int MIN_FONT_SIZE = 8;
     public static final int MAX_FONT_SIZE = 96;
+    /** Autosave is off unless the user turns it on in the settings screen. */
+    public static final int DEFAULT_AUTOSAVE_SEC = 0;
 
     private final SharedPreferences sp;
 
@@ -71,6 +76,37 @@ public final class Prefs {
         }
     }
 
+    /**
+     * Whether the caret line of the last edited file is remembered and restored at
+     * startup. Only meaningful for the "reopen last file" startup mode.
+     */
+    public boolean rememberLastLine() {
+        return sp.getBoolean(KEY_REMEMBER_LINE, true);
+    }
+
+    public void setRememberLastLine(boolean remember) {
+        sp.edit().putBoolean(KEY_REMEMBER_LINE, remember).apply();
+    }
+
+    /** Remembers the 0-based caret line, tagged with the file it belongs to. */
+    public void recordLine(String path, int line) {
+        if (path == null || path.isEmpty()) {
+            return;
+        }
+        sp.edit()
+                .putString(KEY_LAST_LINE_PATH, path)
+                .putInt(KEY_LAST_LINE, Math.max(0, line))
+                .apply();
+    }
+
+    /** The remembered line for {@code path}; 0 when nothing (or another file) is stored. */
+    public int lineFor(String path) {
+        if (path == null || !path.equals(sp.getString(KEY_LAST_LINE_PATH, ""))) {
+            return 0;
+        }
+        return Math.max(0, sp.getInt(KEY_LAST_LINE, 0));
+    }
+
     // ---- settings ----
 
     public String startupMode() {
@@ -83,7 +119,7 @@ public final class Prefs {
 
     /** 0 = off, otherwise seconds between autosaves. */
     public int autosaveIntervalSec() {
-        return sp.getInt(KEY_AUTOSAVE_SEC, 10);
+        return sp.getInt(KEY_AUTOSAVE_SEC, DEFAULT_AUTOSAVE_SEC);
     }
 
     public void setAutosaveIntervalSec(int sec) {
