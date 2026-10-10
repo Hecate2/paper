@@ -177,7 +177,9 @@ public class VirtualTextView extends View {
             return;
         }
         int digits = String.valueOf(Math.max(1, lineCount)).length();
-        float w = lineNumPaint.measureText("0", 0, digits) + 12;
+        // Width of `digits` digits. (measureText(text, 0, digits) would throw once
+        // digits exceeds the length of the measured string.)
+        float w = lineNumPaint.measureText("0") * digits + 12;
         gutterWidth = Math.max(Math.round(18 * getResources().getDisplayMetrics().density), Math.round(w));
     }
 

@@ -55,22 +55,24 @@ public class EditorEditText extends EditText {
         if (this.showLineNumbers != show) {
             this.showLineNumbers = show;
             updateGutterWidth();
-            setPaddingRelative(show ? (int) gutterWidth + dp(8) : dp(8),
-                    getPaddingTop(), getPaddingEnd(), getPaddingBottom());
             invalidate();
         }
     }
 
-    public void applyStyle(int fontSizeSp, boolean wrap) {
-        int sel = getSelectionStart();
-        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, fontSizeSp);
-        setHorizontallyScrolling(!wrap);
-        // Re-layout after switching scrolling mode, keeping the caret in place.
-        CharSequence t = getText();
-        setText(t);
-        if (sel >= 0 && sel <= t.length()) {
-            setSelection(sel);
+    /** Keeps the left padding in sync with the current gutter width. */
+    private void applyGutterPadding() {
+        int left = showLineNumbers ? (int) Math.ceil(gutterWidth) + dp(8) : dp(8);
+        if (left != getPaddingLeft()) {
+            setPaddingRelative(left, getPaddingTop(), getPaddingEnd(), getPaddingBottom());
         }
+    }
+
+    public void applyStyle(int fontSizeSp, boolean wrap) {
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, fontSizeSp);
+        // setHorizontallyScrolling() already discards the layout and re-requests it, so
+        // there is no need to re-set the text here (doing so would fire the TextWatcher
+        // and wrongly mark the document as modified).
+        setHorizontallyScrolling(!wrap);
         updateGutterWidth();
         setShowLineNumbers(showLineNumbers);
         invalidate();
@@ -83,13 +85,23 @@ public class EditorEditText extends EditText {
     private void updateGutterWidth() {
         if (!showLineNumbers) {
             gutterWidth = 0;
+            applyGutterPadding();
             return;
+        }
+        // Keep the gutter painted at the editor's own text size.
+        float size = getTextSize();
+        if (size > 0) {
+            lineNumPaint.setTextSize(size);
+            currentNumPaint.setTextSize(size);
         }
         Layout layout = getLayout();
         int lines = layout != null ? layout.getLineCount() : 1;
         int digits = String.valueOf(Math.max(1, lines)).length();
-        float w = lineNumPaint.measureText("0", 0, digits) + dp(6);
+        // Width of `digits` digits. (measureText(text, 0, digits) would throw once
+        // digits exceeds the length of the measured string.)
+        float w = lineNumPaint.measureText("0") * digits + dp(6);
         gutterWidth = Math.max(dp(18), w);
+        applyGutterPadding();
     }
 
     @Override
