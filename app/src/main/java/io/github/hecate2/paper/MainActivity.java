@@ -492,18 +492,20 @@ public class MainActivity extends Activity {
         showSaveDialog(prefs.lastDirectory(), name, null);
     }
 
-    /** One-tap "close the open file": confirm when dirty, then fall back to an empty draft. */
+    /** One-tap "close the open file": confirm when dirty, then land in the file browser. */
     private void actionClose() {
-        if (mode == Mode.SCRATCH && !dirty && editor.getText().length() == 0) {
-            return;
-        }
         confirmDiscardThen(this::doClose);
     }
 
+    /**
+     * Closing a file always shows the file browser — never a fresh empty draft. The
+     * browser is started for result, so picking a file (or 新建) comes straight back here.
+     */
     private void doClose() {
         // Remember "nothing open" so the LAST_FILE startup mode does not reopen it.
         prefs.recordOpened(null, true);
         resetToScratch(null);
+        startBrowser(prefs.lastDirectory(), false);
     }
 
     /** Asks about unsaved changes before running {@code next}; no-op when clean. */

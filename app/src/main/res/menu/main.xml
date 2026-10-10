@@ -16,11 +16,6 @@
         android:showAsAction="always"
         android:title="@string/menu_save" />
     <item
-        android:id="@+id/action_close"
-        android:icon="@drawable/ic_close"
-        android:showAsAction="ifRoom"
-        android:title="@string/menu_close" />
-    <item
         android:id="@+id/action_rename"
         android:icon="@drawable/ic_rename"
         android:showAsAction="ifRoom"
@@ -30,6 +25,12 @@
         android:icon="@drawable/ic_search"
         android:showAsAction="always"
         android:title="@string/menu_find" />
+    <!-- Always visible: closing a file is the only way to reach the browser. -->
+    <item
+        android:id="@+id/action_close"
+        android:icon="@drawable/ic_close"
+        android:showAsAction="always"
+        android:title="@string/menu_close" />
     <item
         android:id="@+id/action_save_as"
         android:icon="@drawable/ic_save_as"

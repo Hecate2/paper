@@ -1,9 +1,11 @@
 package io.github.hecate2.paper;
 
+import android.app.ActionBar;
 import android.app.Activity;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.MenuItem;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -31,6 +33,12 @@ public class SettingsActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
         prefs = new Prefs(this);
+
+        // Phones without a navigation bar still need a way back out of here.
+        ActionBar bar = getActionBar();
+        if (bar != null) {
+            bar.setDisplayHomeAsUpEnabled(true);
+        }
 
         // --- startup mode ---
         RadioGroup startup = findViewById(R.id.startupGroup);
@@ -84,13 +92,13 @@ public class SettingsActivity extends Activity {
         SeekBar font = findViewById(R.id.fontSeek);
         TextView fontLabel = findViewById(R.id.fontLabel);
         int size = prefs.fontSizeSp();
-        font.setMax(32 - 10);
-        font.setProgress(size - 10);
+        font.setMax(Prefs.MAX_FONT_SIZE - Prefs.MIN_FONT_SIZE);
+        font.setProgress(size - Prefs.MIN_FONT_SIZE);
         fontLabel.setText(getString(R.string.settings_font_size) + ": " + size + "sp");
         SeekBar.OnSeekBarChangeListener fontListener = new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                int sp = progress + 10;
+                int sp = progress + Prefs.MIN_FONT_SIZE;
                 prefs.setFontSizeSp(sp);
                 fontLabel.setText(getString(R.string.settings_font_size) + ": " + sp + "sp");
             }
@@ -134,5 +142,14 @@ public class SettingsActivity extends Activity {
         encoding.setSelection(encIdx);
         encoding.setOnItemSelectedListener(new SimpleItemSelectedListener(i ->
                 prefs.setDefaultEncoding(choices[i])));
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == android.R.id.home) {
+            finish();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 }

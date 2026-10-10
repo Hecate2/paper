@@ -24,6 +24,9 @@ public final class Prefs {
     public static final String KEY_BROWSER_SORT_DESC = "browserSortDesc";
 
     public static final int DEFAULT_FONT_SIZE = 16;
+    /** Font size the editor accepts, in sp. The upper end is deliberately generous. */
+    public static final int MIN_FONT_SIZE = 8;
+    public static final int MAX_FONT_SIZE = 96;
 
     private final SharedPreferences sp;
 
@@ -92,7 +95,8 @@ public final class Prefs {
     }
 
     public void setFontSizeSp(int size) {
-        sp.edit().putInt(KEY_FONT_SIZE, Math.max(10, Math.min(32, size))).apply();
+        sp.edit().putInt(KEY_FONT_SIZE,
+                Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size))).apply();
     }
 
     public boolean showLineNumbers() {
