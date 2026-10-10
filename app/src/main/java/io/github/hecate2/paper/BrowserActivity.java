@@ -2,17 +2,18 @@ package io.github.hecate2.paper;
 
 import android.app.ActionBar;
 import android.app.Activity;
-import android.graphics.Color;
-import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
+import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
@@ -20,10 +21,15 @@ import android.widget.PopupMenu;
 import android.widget.TextView;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Simple real-path file browser.
@@ -32,6 +38,10 @@ import java.util.List;
  *  - MODE_PICK_DIR: show "select current directory" button -> RESULT_OK with the dir path
  * Directories always sort before files; the sort field/direction applies within each group.
  * Typing in the search box filters the entries of the current directory only (no recursion).
+ *
+ * <p>Directory listing, stat-ing and sorting all run on a background thread and the results
+ * are published as an immutable row list, so a folder with tens of thousands of entries
+ * never blocks the UI thread. A generation counter drops results for superseded loads.
  */
 public class BrowserActivity extends Activity {
 
@@ -49,30 +59,55 @@ public class BrowserActivity extends Activity {
     private static final int SORT_DATE = 2;
     private static final int SORT_TYPE = 3;
 
+    private static final int KIND_ENTRY = 0;
+    private static final int KIND_EMPTY = 1;
+    private static final int KIND_FOOTER = 2;
+
+    /** One list row. Entries carry their stat results so scrolling never touches the disk. */
+    private static final class Row {
+        final int kind;
+        final String name;
+        final boolean dir;
+        final long size;
+        final long mtime;
+
+        Row(int kind, String name, boolean dir, long size, long mtime) {
+            this.kind = kind;
+            this.name = name;
+            this.dir = dir;
+            this.size = size;
+            this.mtime = mtime;
+        }
+    }
+
     private File currentDir;
     private boolean pickDirMode;
-    private final List<String> names = new ArrayList<>();
-    private final List<File> entries = new ArrayList<>();
-    private ArrayAdapter<String> adapter;
+
+    private final List<Row> rows = new ArrayList<>();
+    private RowAdapter adapter;
 
     private TextView pathView;
     private EditText searchInput;
     private ImageButton searchClear;
     private ImageButton sortDirBtn;
-    private android.widget.Button sortBtn;
+    private Button sortBtn;
 
     private int sortField = SORT_NAME;
     private boolean sortDesc = false;
     private String query = "";
     /** True while we replace the search box text ourselves, to skip the redundant refresh. */
     private boolean suppressSearch;
-    /** Row index of the trailing "searching…" hint, or -1 when there is none. */
-    private int footerPos = -1;
 
     private int pathBgNormal;
     private int pathFgNormal;
     private int pathBgSearch;
     private int pathFgSearch;
+
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Handler main = new Handler(Looper.getMainLooper());
+    /** Incremented per load; a result whose id is stale is discarded. */
+    private int loadSeq;
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,35 +151,31 @@ public class BrowserActivity extends Activity {
         pathBgSearch = getColor(R.color.browser_search_bg);
         pathFgSearch = getColor(R.color.browser_search_text);
 
-        adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, names) {
-            @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                TextView tv = (TextView) super.getView(position, convertView, parent);
-                if (position == footerPos) {
-                    tv.setBackgroundColor(pathBgSearch);
-                    tv.setTextColor(pathFgSearch);
-                    tv.setTypeface(null, Typeface.BOLD);
-                } else {
-                    tv.setBackgroundColor(Color.TRANSPARENT);
-                    tv.setTextColor(pathFgNormal);
-                    tv.setTypeface(null, Typeface.NORMAL);
-                }
-                return tv;
-            }
-
-            @Override
-            public boolean isEnabled(int position) {
-                // The trailing hint and the "empty"/"no match" placeholders are not clickable.
-                return !names.isEmpty() && position < entries.size();
-            }
-        };
+        adapter = new RowAdapter();
         list.setAdapter(adapter);
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            Row r = rows.get(position);
+            if (r.kind != KIND_ENTRY) {
+                return; // placeholder / footer row
+            }
+            File f = new File(currentDir, r.name);
+            if (r.dir) {
+                currentDir = f;
+                clearSearch();
+                refresh();
+            } else {
+                getIntent().putExtra(EXTRA_PATH, f.getAbsolutePath());
+                prefs.recordDirectory(currentDir.getAbsolutePath());
+                setResult(RESULT_OK, getIntent());
+                finish();
+            }
+        });
 
         if (pickDirMode) {
             pick.setVisibility(View.VISIBLE);
             pick.setOnClickListener(v -> {
                 getIntent().putExtra(EXTRA_PATH, currentDir.getAbsolutePath());
-                new Prefs(this).recordDirectory(currentDir.getAbsolutePath());
+                prefs.recordDirectory(currentDir.getAbsolutePath());
                 setResult(RESULT_OK, getIntent());
                 finish();
             });
@@ -153,7 +184,7 @@ public class BrowserActivity extends Activity {
         sortBtn.setOnClickListener(this::showSortMenu);
         sortDirBtn.setOnClickListener(v -> {
             sortDesc = !sortDesc;
-            new Prefs(this).setBrowserSortDesc(sortDesc);
+            prefs.setBrowserSortDesc(sortDesc);
             updateSortDirIcon();
             refresh();
         });
@@ -192,24 +223,13 @@ public class BrowserActivity extends Activity {
             }
         });
 
-        list.setOnItemClickListener((parent, view, position, id) -> {
-            if (position >= entries.size()) {
-                return; // placeholder / footer row
-            }
-            File f = entries.get(position);
-            if (f.isDirectory()) {
-                currentDir = f;
-                clearSearch();
-                refresh();
-            } else {
-                getIntent().putExtra(EXTRA_PATH, f.getAbsolutePath());
-                new Prefs(this).recordDirectory(currentDir.getAbsolutePath());
-                setResult(RESULT_OK, getIntent());
-                finish();
-            }
-        });
-
         refresh();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        io.shutdownNow();
     }
 
     @Override
@@ -258,26 +278,14 @@ public class BrowserActivity extends Activity {
         menu.setOnMenuItemClickListener(item -> {
             sortField = item.getItemId();
             new Prefs(this).setBrowserSort(fieldKey(sortField));
-            updateSortLabel();
             refresh();
             return true;
         });
         menu.show();
     }
 
-    private void updateSortLabel() {
-        int res;
-        switch (sortField) {
-            case SORT_SIZE: res = R.string.browser_sort_size; break;
-            case SORT_DATE: res = R.string.browser_sort_date; break;
-            case SORT_TYPE: res = R.string.browser_sort_type; break;
-            default: res = R.string.browser_sort_name;
-        }
-        sortBtn.setText(res);
-    }
-
     private void updateSortDirIcon() {
-        // Ascending = chevron up, descending = chevron down (both mean "smallest first").
+        // Ascending = chevron up, descending = chevron down.
         sortDirBtn.setImageResource(sortDesc ? R.drawable.ic_chevron_down : R.drawable.ic_chevron_up);
         sortDirBtn.setContentDescription(
                 getString(sortDesc ? R.string.browser_sort_desc : R.string.browser_sort_asc));
@@ -305,93 +313,189 @@ public class BrowserActivity extends Activity {
         return SORT_NAME;
     }
 
-    private static String extensionOf(File f) {
-        String n = f.getName();
-        int dot = n.lastIndexOf('.');
-        return dot > 0 && dot < n.length() - 1 ? n.substring(dot + 1).toLowerCase() : "";
+    private static String extensionOf(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 && dot < name.length() - 1 ? name.substring(dot + 1).toLowerCase(Locale.US) : "";
     }
 
-    private Comparator<File> comparator() {
-        Comparator<File> c;
+    private static int nameOrder(Row a, Row b) {
+        return a.name.compareToIgnoreCase(b.name);
+    }
+
+    /** Sorts already-stat-ed rows, so no comparator call touches the disk. */
+    private Comparator<Row> rowComparator() {
+        Comparator<Row> c;
         switch (sortField) {
             case SORT_SIZE:
                 c = (a, b) -> {
-                    int r = Long.compare(a.length(), b.length());
-                    return r != 0 ? r : a.getName().compareToIgnoreCase(b.getName());
+                    int r = Long.compare(a.size, b.size);
+                    return r != 0 ? r : nameOrder(a, b);
                 };
                 break;
             case SORT_DATE:
                 c = (a, b) -> {
-                    int r = Long.compare(a.lastModified(), b.lastModified());
-                    return r != 0 ? r : a.getName().compareToIgnoreCase(b.getName());
+                    int r = Long.compare(a.mtime, b.mtime);
+                    return r != 0 ? r : nameOrder(a, b);
                 };
                 break;
             case SORT_TYPE:
                 c = (a, b) -> {
-                    int r = extensionOf(a).compareTo(extensionOf(b));
-                    return r != 0 ? r : a.getName().compareToIgnoreCase(b.getName());
+                    int r = extensionOf(a.name).compareTo(extensionOf(b.name));
+                    return r != 0 ? r : nameOrder(a, b);
                 };
                 break;
             default:
-                c = (a, b) -> a.getName().compareToIgnoreCase(b.getName());
+                c = BrowserActivity::nameOrder;
         }
         return sortDesc ? c.reversed() : c;
     }
 
     private void refresh() {
         updateSortLabel();
-        names.clear();
-        entries.clear();
-        footerPos = -1;
 
-        boolean searching = !query.isEmpty();
+        final File dir = currentDir;
+        final String q = query;
+        final boolean searching = !q.isEmpty();
+
         pathView.setText(searching
-                ? getString(R.string.browser_search_prefix, query) + " · " + currentDir.getAbsolutePath()
-                : currentDir.getAbsolutePath());
+                ? getString(R.string.browser_search_prefix, q) + " · " + dir.getAbsolutePath()
+                : dir.getAbsolutePath());
         pathView.setBackgroundColor(searching ? pathBgSearch : pathBgNormal);
         pathView.setTextColor(searching ? pathFgSearch : pathFgNormal);
 
-        List<File> dirs = new ArrayList<>();
-        List<File> files = new ArrayList<>();
-        File[] fs = currentDir.listFiles();
-        if (fs != null) {
-            for (File f : fs) {
-                if (searching && !matches(f)) {
-                    continue;
+        if (!dir.isDirectory()) {
+            loadSeq++;
+            rows.clear();
+            rows.add(new Row(KIND_EMPTY, getString(R.string.browser_empty), false, 0, 0));
+            adapter.notifyDataSetChanged();
+            return;
+        }
+
+        // Only the very first load (or an empty result) gets a placeholder, so typing in
+        // the search box never flashes the list away.
+        if (rows.isEmpty()) {
+            rows.add(new Row(KIND_EMPTY, getString(searching ? R.string.browser_search_none
+                    : R.string.browser_loading, q), false, 0, 0));
+            adapter.notifyDataSetChanged();
+        }
+
+        final int seq = ++loadSeq;
+        final Comparator<Row> cmp = rowComparator();
+        final String needle = q.toLowerCase(Locale.US);
+        io.execute(() -> {
+            List<Row> out = new ArrayList<>();
+            File[] fs = dir.listFiles();
+            if (fs != null) {
+                List<Row> dirs = new ArrayList<>();
+                List<Row> files = new ArrayList<>();
+                for (File f : fs) {
+                    String name = f.getName();
+                    if (searching && !name.toLowerCase(Locale.US).contains(needle)) {
+                        continue;
+                    }
+                    // Stat once here rather than on every scroll or comparison.
+                    boolean isDir = f.isDirectory();
+                    (isDir ? dirs : files).add(
+                            new Row(KIND_ENTRY, name, isDir, isDir ? 0 : f.length(), f.lastModified()));
                 }
-                if (f.isDirectory()) {
-                    dirs.add(f);
-                } else {
-                    files.add(f);
-                }
+                Collections.sort(dirs, cmp);
+                Collections.sort(files, cmp);
+                out.addAll(dirs);
+                out.addAll(files);
             }
-        }
-        Comparator<File> c = comparator();
-        Collections.sort(dirs, c);
-        Collections.sort(files, c);
-
-        for (File d : dirs) {
-            entries.add(d);
-            names.add("📁 " + d.getName());
-        }
-        for (File f : files) {
-            entries.add(f);
-            names.add(f.getName());
-        }
-
-        if (entries.isEmpty()) {
-            names.add(getString(searching ? R.string.browser_search_none : R.string.browser_empty,
-                    query));
-        } else if (searching) {
-            // Appended under the last hit so the active filter stays obvious even when the
-            // user scrolls to the bottom of a long list.
-            names.add(getString(R.string.browser_search_footer, query));
-            footerPos = names.size() - 1;
-        }
-        adapter.notifyDataSetChanged();
+            if (out.isEmpty()) {
+                out.add(new Row(KIND_EMPTY, getString(
+                        searching ? R.string.browser_search_none : R.string.browser_empty, q),
+                        false, 0, 0));
+            } else if (searching) {
+                // Under the last hit, so the active filter stays obvious when scrolled down.
+                out.add(new Row(KIND_FOOTER, getString(R.string.browser_search_footer, q),
+                        false, 0, 0));
+            }
+            final List<Row> result = out;
+            main.post(() -> {
+                if (seq != loadSeq) {
+                    return; // superseded by a newer directory/search/sort
+                }
+                rows.clear();
+                rows.addAll(result);
+                adapter.notifyDataSetChanged();
+            });
+        });
     }
 
-    private boolean matches(File f) {
-        return f.getName().toLowerCase().contains(query.toLowerCase());
+    /** Human-readable size; folders have none, so they show their type instead. */
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        double kb = bytes / 1024.0;
+        if (kb < 1024) {
+            return String.format(Locale.US, "%.1f KB", kb);
+        }
+        double mb = kb / 1024.0;
+        if (mb < 1024) {
+            return String.format(Locale.US, "%.1f MB", mb);
+        }
+        return String.format(Locale.US, "%.1f GB", mb / 1024.0);
+    }
+
+    private final class RowAdapter extends BaseAdapter {
+
+        @Override
+        public int getCount() {
+            return rows.size();
+        }
+
+        @Override
+        public Row getItem(int position) {
+            return rows.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public boolean isEnabled(int position) {
+            return getItem(position).kind == KIND_ENTRY;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            View v = convertView;
+            if (v == null) {
+                v = getLayoutInflater().inflate(R.layout.browser_row, parent, false);
+            }
+            TextView name = v.findViewById(R.id.rowName);
+            TextView meta = v.findViewById(R.id.rowMeta);
+            Row r = getItem(position);
+            if (r.kind == KIND_ENTRY) {
+                name.setText(r.dir ? "📁 " + r.name : r.name);
+                name.setSingleLine(true);
+                meta.setVisibility(View.VISIBLE);
+                String when = dateFormat.format(new Date(r.mtime));
+                meta.setText(r.dir
+                        ? getString(R.string.browser_folder) + " · " + when
+                        : formatSize(r.size) + " · " + when);
+            } else {
+                name.setText(r.name);
+                name.setSingleLine(r.kind == KIND_FOOTER);
+                meta.setVisibility(View.GONE);
+            }
+            return v;
+        }
+    }
+
+    private void updateSortLabel() {
+        int res;
+        switch (sortField) {
+            case SORT_SIZE: res = R.string.browser_sort_size; break;
+            case SORT_DATE: res = R.string.browser_sort_date; break;
+            case SORT_TYPE: res = R.string.browser_sort_type; break;
+            default: res = R.string.browser_sort_name;
+        }
+        sortBtn.setText(res);
     }
 }
