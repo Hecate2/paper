@@ -21,6 +21,13 @@ import android.widget.OverScroller;
  */
 public class VirtualTextView extends View {
 
+    /**
+     * Upper bound on how much of a single line is ever measured or drawn. A file with
+     * one multi-megabyte line would otherwise make every frame measure millions of
+     * glyphs on the UI thread (an ANR); the tail of such a line is simply not shown.
+     */
+    private static final int MAX_LINE_SPAN = 20000;
+
     private String text = "";
     private int[] lineStarts = {0};
     private int lineCount = 1;
@@ -164,6 +171,7 @@ public class VirtualTextView extends View {
             // For huge files sample-based width is a lower bound; drawing clips safely.
             maxChars = Math.max(maxChars, 200);
         }
+        maxChars = Math.min(maxChars, MAX_LINE_SPAN);
         contentWidth = (long) (maxChars * textPaint.measureText("W")) + gutterWidth + 32;
         contentHeight = (long) (lineCount * lineHeight);
         if (contentHeight < getHeight()) {
@@ -244,7 +252,7 @@ public class VirtualTextView extends View {
 
     private void drawLine(Canvas canvas, int line, float y, int scrollX, int viewW) {
         int s = lineStart(line);
-        int e = lineEnd(line);
+        int e = Math.min(lineEnd(line), s + MAX_LINE_SPAN);
         if (e <= s) {
             return;
         }
