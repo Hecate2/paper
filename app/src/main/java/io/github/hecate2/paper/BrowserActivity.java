@@ -1,5 +1,6 @@
 package io.github.hecate2.paper;
 
+import android.app.ActionBar;
 import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -8,6 +9,7 @@ import android.os.Environment;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -39,6 +41,8 @@ public class BrowserActivity extends Activity {
     public static final String MODE_PICK_DIR = "pickDir";
 
     public static final String EXTRA_PATH = "path";
+    /** Result flag: the user asked for a brand-new empty file instead of an existing one. */
+    public static final String EXTRA_NEW_FILE = "newFile";
 
     private static final int SORT_NAME = 0;
     private static final int SORT_SIZE = 1;
@@ -74,6 +78,12 @@ public class BrowserActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_browser);
+
+        // Phones without a navigation bar need their own way back to the editor.
+        ActionBar bar = getActionBar();
+        if (bar != null) {
+            bar.setDisplayHomeAsUpEnabled(true);
+        }
 
         Prefs prefs = new Prefs(this);
         sortField = fieldFromKey(prefs.browserSort());
@@ -200,6 +210,32 @@ public class BrowserActivity extends Activity {
         });
 
         refresh();
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.browser, menu);
+        // Picking a directory has nothing to do with creating a file.
+        menu.findItem(R.id.action_new_file).setVisible(!pickDirMode);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+        if (id == android.R.id.home) {
+            finish();
+            return true;
+        }
+        if (id == R.id.action_new_file) {
+            // Remember where the user was so a later 保存 lands in this directory.
+            new Prefs(this).recordDirectory(currentDir.getAbsolutePath());
+            getIntent().putExtra(EXTRA_NEW_FILE, true);
+            setResult(RESULT_OK, getIntent());
+            finish();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     private void clearSearch() {

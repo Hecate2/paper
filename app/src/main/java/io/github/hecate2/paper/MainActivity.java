@@ -1014,6 +1014,10 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (requestCode == REQ_OPEN && data.getBooleanExtra(BrowserActivity.EXTRA_NEW_FILE, false)) {
+            resetToScratch(null);
+            return;
+        }
         String path = data.getStringExtra(BrowserActivity.EXTRA_PATH);
         if (path == null) {
             return;
@@ -1081,12 +1085,12 @@ public class MainActivity extends Activity {
         MenuItem save = menu.findItem(R.id.action_save);
         MenuItem saveAs = menu.findItem(R.id.action_save_as);
         MenuItem rename = menu.findItem(R.id.action_rename);
-        MenuItem close = menu.findItem(R.id.action_close);
         boolean canWrite = !readOnly;
         save.setEnabled(canWrite);
         saveAs.setEnabled(canWrite);
         rename.setEnabled(canWrite && mode == Mode.FILE);
-        close.setEnabled(mode != Mode.SCRATCH || dirty || editor.getText().length() > 0);
+        // 关闭文件 is always live: on an empty draft it simply opens the browser.
+        menu.findItem(R.id.action_close).setEnabled(true);
         menu.findItem(R.id.action_restore_backup).setEnabled(mode == Mode.FILE);
         return super.onPrepareOptionsMenu(menu);
     }

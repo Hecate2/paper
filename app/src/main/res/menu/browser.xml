@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/action_new_file"
+        android:icon="@drawable/ic_add"
+        android:showAsAction="always"
+        android:title="@string/browser_new_file" />
+</menu>
