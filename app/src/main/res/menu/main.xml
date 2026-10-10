@@ -1,45 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:id="@+id/action_new"
-        android:icon="@drawable/ic_note_add"
-        android:showAsAction="ifRoom"
-        android:title="@string/menu_new" />
-    <item
-        android:id="@+id/action_open"
-        android:icon="@drawable/ic_folder_open"
-        android:showAsAction="ifRoom"
-        android:title="@string/menu_open" />
-    <item
-        android:id="@+id/action_save"
-        android:icon="@drawable/ic_save"
-        android:showAsAction="always"
-        android:title="@string/menu_save" />
-    <item
-        android:id="@+id/action_rename"
-        android:icon="@drawable/ic_rename"
-        android:showAsAction="ifRoom"
-        android:title="@string/menu_rename" />
-    <item
-        android:id="@+id/action_find"
-        android:icon="@drawable/ic_search"
-        android:showAsAction="always"
-        android:title="@string/menu_find" />
-    <!-- Always visible: closing a file is the only way to reach the browser. -->
+    <!-- Left-to-right in the action bar (right of the title): 关闭, 保存, 搜索, then 更多.
+         Everything else lives in the overflow menu. -->
     <item
         android:id="@+id/action_close"
         android:icon="@drawable/ic_close"
         android:showAsAction="always"
         android:title="@string/menu_close" />
     <item
+        android:id="@+id/action_save"
+        android:icon="@drawable/ic_save"
+        android:showAsAction="always"
+        android:title="@string/menu_save" />
+    <item
+        android:id="@+id/action_find"
+        android:icon="@drawable/ic_search"
+        android:showAsAction="always"
+        android:title="@string/menu_find" />
+    <item
+        android:id="@+id/action_new"
+        android:icon="@drawable/ic_note_add"
+        android:showAsAction="never"
+        android:title="@string/menu_new" />
+    <item
+        android:id="@+id/action_open"
+        android:icon="@drawable/ic_folder_open"
+        android:showAsAction="never"
+        android:title="@string/menu_open" />
+    <item
+        android:id="@+id/action_rename"
+        android:icon="@drawable/ic_rename"
+        android:showAsAction="never"
+        android:title="@string/menu_rename" />
+    <item
         android:id="@+id/action_save_as"
         android:icon="@drawable/ic_save_as"
-        android:showAsAction="ifRoom"
+        android:showAsAction="never"
         android:title="@string/menu_save_as" />
     <item
         android:id="@+id/action_encoding"
         android:icon="@drawable/ic_language"
-        android:showAsAction="ifRoom"
+        android:showAsAction="never"
         android:title="@string/menu_encoding">
         <menu>
             <group android:checkableBehavior="single" />
@@ -48,11 +49,11 @@
     <item
         android:id="@+id/action_restore_backup"
         android:icon="@drawable/ic_restore"
-        android:showAsAction="ifRoom"
+        android:showAsAction="never"
         android:title="@string/menu_restore_backup" />
     <item
         android:id="@+id/action_settings"
         android:icon="@drawable/ic_settings"
-        android:showAsAction="ifRoom"
+        android:showAsAction="never"
         android:title="@string/menu_settings" />
 </menu>

@@ -22,7 +22,7 @@
     <string name="find_replace_all">全部替换</string>
     <string name="find_case">Aa</string>
     <string name="find_regex">.*</string>
-    <string name="find_word">ab</string>
+    <string name="find_word">[wd]</string>
     <string name="find_close">关闭查找替换</string>
     <string name="readonly_banner">只读模式：此位置无法写入，保存已禁用</string>
 

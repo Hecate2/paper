@@ -67,6 +67,11 @@ public class BrowserActivity extends Activity {
     private static final int SORT_DATE = 2;
     private static final int SORT_TYPE = 3;
 
+    /** Sort-direction menu entries; ids only need to differ from the sort fields. */
+    private static final int GROUP_DIR = 1;
+    private static final int DIR_ASC = 8;
+    private static final int DIR_DESC = 9;
+
     private static final int KIND_ENTRY = 0;
     private static final int KIND_EMPTY = 1;
     private static final int KIND_FOOTER = 2;
@@ -302,9 +307,23 @@ public class BrowserActivity extends Activity {
         menu.getMenu().add(Menu.NONE, SORT_SIZE, SORT_SIZE, R.string.browser_sort_size);
         menu.getMenu().add(Menu.NONE, SORT_DATE, SORT_DATE, R.string.browser_sort_date);
         menu.getMenu().add(Menu.NONE, SORT_TYPE, SORT_TYPE, R.string.browser_sort_type);
+        // Own group: ascending / descending, so the direction is discoverable here too
+        // (the chevron in the toolbar stays as the one-tap shortcut).
+        menu.getMenu().setGroupCheckable(GROUP_DIR, true, true);
+        menu.getMenu().add(GROUP_DIR, DIR_ASC, DIR_ASC, R.string.browser_sort_asc)
+                .setChecked(!sortDesc);
+        menu.getMenu().add(GROUP_DIR, DIR_DESC, DIR_DESC, R.string.browser_sort_desc)
+                .setChecked(sortDesc);
         menu.setOnMenuItemClickListener(item -> {
-            sortField = item.getItemId();
-            new Prefs(this).setBrowserSort(fieldKey(sortField));
+            int id = item.getItemId();
+            if (id == DIR_ASC || id == DIR_DESC) {
+                sortDesc = id == DIR_DESC;
+                new Prefs(this).setBrowserSortDesc(sortDesc);
+                updateSortDirIcon();
+            } else {
+                sortField = id;
+                new Prefs(this).setBrowserSort(fieldKey(sortField));
+            }
             applySort();
             return true;
         });
