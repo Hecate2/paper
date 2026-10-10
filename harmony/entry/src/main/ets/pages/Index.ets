@@ -204,13 +204,30 @@ function fitMiddle(text: string, availVp: number, fontSize: number): string {
 const MENU_TEXT: string = '#DE000000';
 const MENU_TEXT_DISABLED: string = '#42000000';
 
-/** 浅色界面上的深色图标按钮（对齐安卓 borderless ImageButton，40dp；传 6 得 36dp）。 */
+/** 浅色界面上的深色图标按钮：安卓 borderless ImageButton 实测 36×36dp（图标 24dp 居中）。 */
 @Builder
-function ToolIcon(icon: Resource, margin: number, id: string, onTap: () => void) {
-  Image(icon)
-    .width(24)
-    .height(24)
-    .margin(margin)
+function ToolIcon(icon: Resource, id: string, onTap: () => void) {
+  Column() {
+    Image(icon).width(24).height(24);
+  }
+  .width(36)
+  .height(36)
+  .justifyContent(FlexAlign.Center)
+  .id(id)
+  .onClick(onTap);
+}
+
+/** 查找栏的三字开关（安卓 CheckBox：36×36dp、14sp、关灰开蓝、无背景框）。 */
+@Builder
+function FindToggle(label: string, on: boolean, id: string, onTap: () => void) {
+  Button(label, { type: ButtonType.Normal, stateEffect: true })
+    .width(36)
+    .height(36)
+    .padding(0)
+    .borderRadius(0)
+    .fontSize(14)
+    .backgroundColor('#00000000')
+    .fontColor(on ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
     .id(id)
     .onClick(onTap);
 }
@@ -1670,13 +1687,20 @@ struct Index {
         }
 
         // 查找替换栏（行 1：查询 + 计数 + 上/下 + 三个开关；行 2：替换 + 替换/全部 + 关闭）
+        // 实测安卓：两行各 40dp，行内控件无间距，左缩 4dp / 右缩 2dp、底部 4dp；
+        // 输入框 40dp、右侧五个控件 36×36dp、计数 12sp #666666。
         if (this.findOpen) {
-          Column({ space: 6 }) {
-            Row({ space: 6 }) {
+          Column({ space: 0 }) {
+            Row({ space: 0 }) {
               TextInput({ placeholder: '查找…', text: this.query })
                 .id('findInput')
                 .layoutWeight(1)
+                .constraintSize({ minWidth: 60 })
+                .height(40)
                 .fontSize(14)
+                .borderRadius(0)
+                .backgroundColor('#00000000')
+                .padding({ left: 4, right: 4 })
                 .onChange((v: string): void => {
                   this.query = v;
                   this.scheduleFind();
@@ -1688,51 +1712,62 @@ struct Index {
                     this.runFindNow();
                   }
                 });
-              Text(this.matchInfo).fontSize(12).fontColor('#666666');
-              ToolIcon($r('app.media.ic_chevron_up_b'), 6, 'findPrev', (): void => {
+              Text(this.matchInfo)
+                .fontSize(12)
+                .fontColor('#666666')
+                .padding({ left: 4, right: 4 })
+                .id('findCount');
+              ToolIcon($r('app.media.ic_chevron_up_b'), 'findPrev', (): void => {
                 this.gotoMatch(this.matchIndex - 1);
               });
-              ToolIcon($r('app.media.ic_chevron_down_b'), 6, 'findNext', (): void => {
+              ToolIcon($r('app.media.ic_chevron_down_b'), 'findNext', (): void => {
                 this.gotoMatch(this.matchIndex + 1);
               });
-              Button('Aa').fontSize(14).backgroundColor('#00000000')
-                .fontColor(this.caseSens ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
-                .onClick((): void => {
-                  this.caseSens = !this.caseSens;
-                  this.runFindNow();
-                });
-              Button('.*').fontSize(14).backgroundColor('#00000000')
-                .fontColor(this.useRegex ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
-                .onClick((): void => {
-                  this.useRegex = !this.useRegex;
-                  this.runFindNow();
-                });
-              Button('[wd]').fontSize(14).backgroundColor('#00000000')
-                .fontColor(this.wholeWord ? $r('app.color.find_toggle_on') : $r('app.color.find_toggle_off'))
-                .onClick((): void => {
-                  this.wholeWord = !this.wholeWord;
-                  this.runFindNow();
-                });
+              FindToggle('Aa', this.caseSens, 'findCase', (): void => {
+                this.caseSens = !this.caseSens;
+                this.runFindNow();
+              });
+              FindToggle('.*', this.useRegex, 'findRegex', (): void => {
+                this.useRegex = !this.useRegex;
+                this.runFindNow();
+              });
+              FindToggle('[wd]', this.wholeWord, 'findWord', (): void => {
+                this.wholeWord = !this.wholeWord;
+                this.runFindNow();
+              });
             }
-            Row({ space: 6 }) {
+            .width('100%')
+            .height(40)
+            .padding({ left: 4, right: 2 });
+            Row({ space: 0 }) {
               TextInput({ placeholder: '替换为…', text: this.replacement })
+                .id('replaceInput')
                 .layoutWeight(1)
+                .constraintSize({ minWidth: 60 })
+                .height(40)
                 .fontSize(14)
+                .borderRadius(0)
+                .backgroundColor('#00000000')
+                .padding({ left: 4, right: 4 })
                 .onChange((v: string): void => {
                   this.replacement = v;
                 });
-              ToolIcon($r('app.media.ic_swap_horiz_b'), 6, 'findReplaceOne', (): void => {
+              ToolIcon($r('app.media.ic_swap_horiz_b'), 'findReplaceOne', (): void => {
                 this.replaceCurrent();
               });
-              ToolIcon($r('app.media.ic_done_all_b'), 6, 'findReplaceAll', (): void => {
+              ToolIcon($r('app.media.ic_done_all_b'), 'findReplaceAll', (): void => {
                 this.replaceAll();
               });
-              ToolIcon($r('app.media.ic_close_b'), 6, 'findClose', (): void => {
+              ToolIcon($r('app.media.ic_close_b'), 'findClose', (): void => {
                 this.toggleFindBar();
               });
             }
+            .width('100%')
+            .height(40)
+            .padding({ left: 4, right: 2 });
           }
-          .padding(8)
+          .width('100%')
+          .padding({ bottom: 4 })
           .backgroundColor('#FFF9F9F9');
         }
 
