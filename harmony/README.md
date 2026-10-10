@@ -60,21 +60,31 @@ harmony/
 
 ## 构建与运行（需要 DevEco Studio + 鸿蒙 SDK）
 
-本机（Mac）需要先安装工具链，步骤见
-[Mac 安装 DevEco / SDK / 模拟器](#mac-安装-deveco--sdk--模拟器) 一节。
-备好之后：
+已在 Mac + DevEco 26.0.0（内嵌 SDK HarmonyOS 26.0.0 / API 26）上验证通过。
+前置：JDK 17（`JAVA_HOME`）、Node（DevEco 自带 `tools/node` 即可）、
+`~/.npmrc` 配好 `@ohos` 私服（见下）。
 
 ```bash
 cd harmony
-# 1. 配置 SDK 路径（复制模板后填写本机实际路径）
-cp local.properties.template local.properties
-#    macOS 默认 SDK 路径形如：sdk.dir=/Users/<你>/Library/HarmonyOS/Sdk
+# 1. 环境变量（实测必须，local.properties 在此工具链下不生效）
+export JAVA_HOME=/Users/xinghao/.local/share/temurin-17.jdk/Contents/Home
+export PATH="/Applications/DevEco-Studio.app/Contents/tools/node/bin:$PATH"
+export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
+export OHOS_BASE_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
 
-# 2. 命令行构建（等价于 IDE 里点运行；需 JDK 17 + Node 18+）
-hvigorw assembleHap --mode debug        # 调试包
-hvigorw assembleHap --mode release      # 发布包（需先配签名，见根 build-profile.json5 注释）
+# 2. 私服（~/.npmrc，用户级，只需配一次；hvigor 拉 @ohos/hvigor-ohos-plugin 用）
+# registry=https://registry.npmjs.org/
+# @ohos:registry=https://repo.harmonyos.com/npm/
 
-# 3. 安装到模拟器/真机（hdc 在 SDK toolchains 目录下）
+# 3. 构建（--mode 指执行范围 module/project；debug 为默认 buildMode）
+hvigorw assembleHap --mode module    # 用 DevEco 自带的 hvigorw 全路径或 "$PATH" 里的
+```
+
+产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`
+（debug 未签名，可直接装模拟器；release 签名后同目录）。
+
+```bash
+# 4. 安装到模拟器/真机（hdc 在 SDK toolchains 目录下）
 hdc list targets
 hdc install entry/build/default/outputs/default/entry-default-unsigned.hap
 hdc shell aa start -a EntryAbility -b io.github.hecate2.paper
@@ -122,23 +132,7 @@ node run_core_tests.mjs
 ## 首次在 DevEco 构建时的核对清单
 
 本工程在 Mac 上已用 `tsc --strict` 校验过全部 `core/*.ets`（零错误），
-并用 Node 跑通 104 项单测；但 ArkUI/系统 API 只能在配好 SDK 的 DevEco
-里做最终编译。以下几处是按公开文档写的、首构建时若 IDE 报错请优先看的位置
-（都是单点调用，改一行即可）：
-
-1. `model/FileService.ets`：`fs.sync(path)`（落盘）、`fs.rename()`（原子替换）、
-   `fs.read(fd, buf, { offset, length })` 的参数形态——不同 API Level 的
-   fileIo 签名略有出入，以 IDE 提示为准微调这一文件即可，上层逻辑不动。
-2. `model/FileService.ets`：`fileShare.persistPermission(uris, OperationMode.READ_MODE)`
-   的枚举成员名——持久化授权失败只走 `catch`（功能降级为临时授权），不阻塞构建。
-3. `pages/Index.ets`：`TextAreaController.caretOffset(n)`（程序性跳行）——
-   若所配 SDK 无此方法，删掉三处 `try { ctl.caretOffset }` 调用即可，
-   查找计数/替换逻辑不受影响。
-4. `model/TextCodecs.ets`：`util.TextDecoder.create('gb18030')`——若运行环境
-   不支持该标签，代码内已有 `gbk` 回退链；GBK 系*编码*走 `util.TextEncoder`，
-   以真机为准。
-5. `entry/src/main/module.json5` 的 `sendData` skill：不同分享方（如图库/
-   文件管理/浏览器）的 Want 形态不一，`EntryAbility` 已做“全量参数转存 +
-   Index 页多键兼容解析”，解析不到就当普通启动，绝不崩。
-
-`local.properties`（SDK 路径）已进 `.gitignore`，不会提交。
+用 Node 跑通 104 项单测，并已用 DevEco 26 命令行完整构建出 HAP
+（`entry-default-unsigned.hap`，约 431 KiB）。剩余 57 个 warning
+多为 `getContext` / `router.back`  deprecation，不影响构建，后续再迁移。
+真机/模拟器上的运行时验证（分享接收、Picker 授权、GBK 编解码）待补。
