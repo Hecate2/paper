@@ -22,7 +22,7 @@ keystore.properties
 
 # HarmonyOS (harmony/ is the HarmonyOS NEXT port, hvigor-based)
 harmony/local.properties
-harmony/.hvigor/
+.hvigor/
 harmony/**/build/
 harmony/**/oh_modules/
 harmony/**/ohosTest/outputs/
