@@ -8,6 +8,14 @@
     <color name="find_current">#664CAF50</color>
     <color name="banner_bg">#FFF3E0</color>
     <color name="banner_text">#E65100</color>
+    <!-- find-bar option toggles: gray = off, blue = on -->
+    <color name="find_toggle_on">#FF2196F3</color>
+    <color name="find_toggle_off">#FF9E9E9E</color>
+    <!-- file browser: path bar + search-active highlight -->
+    <color name="browser_path_bg">#FFF5F5F5</color>
+    <color name="browser_path_text">#FF333333</color>
+    <color name="browser_search_bg">#FFFFB300</color>
+    <color name="browser_search_text">#FF3E2723</color>
     <!-- 与 icon.png 边缘纸色一致，作为自适应图标背景（仅此一个颜色，不打包原图） -->
     <color name="ic_launcher_background">#FAFAF3</color>
 </resources>

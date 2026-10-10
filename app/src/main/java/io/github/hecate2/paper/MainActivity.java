@@ -1,13 +1,16 @@
 package io.github.hecate2.paper;
 
 import android.Manifest;
+import android.app.ActionBar;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,8 +21,11 @@ import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.Layout;
 import android.text.Spanned;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.style.BackgroundColorSpan;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.SubMenu;
@@ -62,6 +68,8 @@ public class MainActivity extends Activity {
     private EditText findInput;
     private EditText replaceInput;
     private TextView findCount;
+    /** Our own action-bar title; a framework title cannot be made clickable reliably. */
+    private TextView titleView;
 
     // state
     private Prefs prefs;
@@ -393,6 +401,10 @@ public class MainActivity extends Activity {
         String bannerText = FileSizePolicy.readOnlyReason(tier, binary);
         if (bannerText == null && truncated) {
             bannerText = "文件过大：仅显示部分内容，保存已禁用";
+        }
+        if (bannerText == null && readOnly) {
+            // Every read-only case is announced here, so the title stays clean.
+            bannerText = getString(R.string.readonly_banner);
         }
         if (bannerText != null) {
             banner.setText(bannerText);
@@ -1032,11 +1044,28 @@ public class MainActivity extends Activity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.main, menu);
+        // The icon set is near-black because it is drawn on light surfaces (find bar,
+        // browser). The action bar is dark, so tint the copies shown up here white.
+        for (int i = 0; i < menu.size(); i++) {
+            tintIconWhite(menu.getItem(i));
+        }
         return true;
+    }
+
+    private static void tintIconWhite(MenuItem item) {
+        Drawable icon = item.getIcon();
+        if (icon != null) {
+            icon = icon.mutate();
+            icon.setTint(Color.WHITE);
+            item.setIcon(icon);
+        }
     }
 
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
+        // Show the current file encoding right where it is changed.
+        menu.findItem(R.id.action_encoding).setTitle(
+                getString(R.string.menu_encoding) + " · " + encoding);
         SubMenu encodingMenu = menu.findItem(R.id.action_encoding).getSubMenu();
         encodingMenu.clear();
         String[] choices = EncodingDetector.USER_CHOICES;
@@ -1178,6 +1207,32 @@ public class MainActivity extends Activity {
         updateTitle();
     }
 
+    /**
+     * Replaces the framework title with our own TextView so that tapping the file
+     * name can open the rename dialog. The framework's action_bar_title is not
+     * reachable/clickable through public API on every OEM build.
+     */
+    private void installClickableTitle() {
+        ActionBar bar = getActionBar();
+        if (bar == null) {
+            return;
+        }
+        titleView = new TextView(this);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        titleView.setTextColor(Color.WHITE);
+        titleView.setSingleLine(true);
+        titleView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        titleView.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Math.round(getResources().getDisplayMetrics().density * 6);
+        titleView.setPadding(pad, 0, pad, 0);
+        titleView.setOnClickListener(v -> actionRename());
+        bar.setDisplayShowTitleEnabled(false);
+        bar.setCustomView(titleView, new ActionBar.LayoutParams(
+                ActionBar.LayoutParams.WRAP_CONTENT, ActionBar.LayoutParams.MATCH_PARENT));
+        bar.setDisplayShowCustomEnabled(true);
+        updateTitle(); // onCreate ran before this view existed
+    }
+
     private void updateTitle() {
         String name;
         if (mode == Mode.FILE && filePath != null) {
@@ -1187,8 +1242,13 @@ public class MainActivity extends Activity {
         } else {
             name = "未保存草稿";
         }
-        String suffix = readOnly ? " · 只读" : (dirty ? " •" : "");
-        setTitle(name + suffix + " · " + encoding);
+        // Only the file name (plus the unsaved marker) goes up here; the read-only
+        // state and the encoding live in the banner and the 编码 menu respectively.
+        String label = dirty ? name + " •" : name;
+        setTitle(label);
+        if (titleView != null) {
+            titleView.setText(label);
+        }
     }
 
     // ---------------------------------------------------------------- find bar wiring
@@ -1196,6 +1256,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPostCreate(Bundle savedInstanceState) {
         super.onPostCreate(savedInstanceState);
+        installClickableTitle();
         findViewById(R.id.findNext).setOnClickListener(v -> {
             if (matches.length > 0) {
                 gotoMatch(matchIndex + 1);

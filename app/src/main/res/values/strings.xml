@@ -22,8 +22,9 @@
     <string name="find_replace_all">全部替换</string>
     <string name="find_case">Aa</string>
     <string name="find_regex">.*</string>
-    <string name="find_word">全词</string>
-    <string name="find_close">关闭</string>
+    <string name="find_word">ab</string>
+    <string name="find_close">关闭查找替换</string>
+    <string name="readonly_banner">只读模式：此位置无法写入，保存已禁用</string>
 
     <string name="rename_title">重命名</string>
     <string name="rename_exists">同名文件已存在</string>
@@ -53,13 +54,25 @@
     <string name="browser_pick_dir">选择当前目录</string>
     <string name="browser_empty">此目录为空</string>
     <string name="browser_up">上级目录</string>
+    <string name="browser_sort">排序</string>
+    <string name="browser_sort_name">名称</string>
+    <string name="browser_sort_size">大小</string>
+    <string name="browser_sort_date">时间</string>
+    <string name="browser_sort_type">类型</string>
+    <string name="browser_sort_asc">升序</string>
+    <string name="browser_sort_desc">降序</string>
+    <string name="browser_search_hint">搜索当前目录…</string>
+    <string name="browser_search_prefix">搜索：%s</string>
+    <string name="browser_search_footer">— 正在搜索「%s」（仅当前目录）—</string>
+    <string name="browser_search_none">没有匹配「%s」的项目</string>
 
     <string name="settings_startup">启动时打开</string>
     <string name="settings_startup_new">新的空文件</string>
     <string name="settings_startup_file">上次打开的文件</string>
     <string name="settings_startup_dir">上次使用的目录</string>
     <string name="settings_autosave">自动保存间隔</string>
-    <string name="settings_autosave_off">关闭</string>
+    <string name="settings_autosave_unit">s</string>
+    <string name="settings_autosave_note">0 = 关闭</string>
     <string name="settings_font_size">文字大小</string>
     <string name="settings_line_numbers">显示行号</string>
     <string name="settings_word_wrap">自动换行</string>

@@ -22,130 +22,142 @@
         android:visibility="gone"
         android:background="#FFF9F9F9">
 
-        <HorizontalScrollView
+        <!-- Row 1: query + count + prev/next + the three option toggles.
+             No HorizontalScrollView: everything must stay on screen, otherwise the
+             controls (notably the close button) end up scrolled out of reach. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:scrollbars="none">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="2dp">
 
-            <LinearLayout
+            <EditText
+                android:id="@+id/findInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="60dp"
+                android:hint="@string/find_hint"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:importantForAutofill="no"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/findCount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp">
-
-                <EditText
-                    android:id="@+id/findInput"
-                    android:layout_width="160dp"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/find_hint"
-                    android:inputType="text"
-                    android:imeOptions="actionSearch"
-                    android:importantForAutofill="no"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/findCount"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="6dp"
-                    android:paddingEnd="6dp"
-                    android:textSize="13sp"
-                    android:textColor="#666666" />
-
-                <ImageButton
-                    android:id="@+id/findPrev"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:contentDescription="@string/find_prev"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_chevron_up" />
-
-                <ImageButton
-                    android:id="@+id/findNext"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:contentDescription="@string/find_next"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_chevron_down" />
-
-                <CheckBox
-                    android:id="@+id/findCase"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/find_case"
-                    android:textSize="12sp" />
-
-                <CheckBox
-                    android:id="@+id/findRegex"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/find_regex"
-                    android:textSize="12sp" />
-
-                <CheckBox
-                    android:id="@+id/findWord"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/find_word"
-                    android:textSize="12sp" />
-
-                <ImageButton
-                    android:id="@+id/findClose"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:contentDescription="@string/find_close"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_close" />
-            </LinearLayout>
-        </HorizontalScrollView>
-
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
                 android:paddingStart="4dp"
                 android:paddingEnd="4dp"
-                android:paddingBottom="4dp">
+                android:textSize="12sp"
+                android:textColor="#666666" />
 
-                <EditText
-                    android:id="@+id/replaceInput"
-                    android:layout_width="160dp"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/replace_hint"
-                    android:inputType="text"
-                    android:importantForAutofill="no"
-                    android:textSize="14sp" />
+            <ImageButton
+                android:id="@+id/findPrev"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="@string/find_prev"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_chevron_up" />
 
-                <ImageButton
-                    android:id="@+id/replaceOne"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:contentDescription="@string/find_replace_one"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_swap_horiz" />
+            <ImageButton
+                android:id="@+id/findNext"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="@string/find_next"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_chevron_down" />
 
-                <ImageButton
-                    android:id="@+id/replaceAll"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:contentDescription="@string/find_replace_all"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_done_all" />
-            </LinearLayout>
-        </HorizontalScrollView>
+            <!-- Symbol-only toggles: gray when off, blue when on (see @color/find_toggle). -->
+            <CheckBox
+                android:id="@+id/findCase"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:button="@null"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:textAllCaps="false"
+                android:textColor="@color/find_toggle"
+                android:textSize="14sp"
+                android:text="@string/find_case" />
+
+            <CheckBox
+                android:id="@+id/findRegex"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:button="@null"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:textAllCaps="false"
+                android:textColor="@color/find_toggle"
+                android:textSize="14sp"
+                android:text="@string/find_regex" />
+
+            <CheckBox
+                android:id="@+id/findWord"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:button="@null"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:textAllCaps="false"
+                android:textColor="@color/find_toggle"
+                android:textSize="14sp"
+                android:text="@string/find_word" />
+        </LinearLayout>
+
+        <!-- Row 2: replacement + replace/replace-all + the close (X) for the whole bar. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="2dp"
+            android:paddingBottom="4dp">
+
+            <EditText
+                android:id="@+id/replaceInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="60dp"
+                android:hint="@string/replace_hint"
+                android:inputType="text"
+                android:importantForAutofill="no"
+                android:textSize="14sp" />
+
+            <ImageButton
+                android:id="@+id/replaceOne"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="@string/find_replace_one"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_swap_horiz" />
+
+            <ImageButton
+                android:id="@+id/replaceAll"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="@string/find_replace_all"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_done_all" />
+
+            <ImageButton
+                android:id="@+id/findClose"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="@string/find_close"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_close" />
+        </LinearLayout>
     </LinearLayout>
 
     <FrameLayout

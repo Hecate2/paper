@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gray when off, blue when on: the only "checked" cue, so no tick box is needed. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/find_toggle_on" android:state_checked="true" />
+    <item android:color="@color/find_toggle_off" />
+</selector>
