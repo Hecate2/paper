@@ -112,9 +112,14 @@ public class EditorEditText extends EditText {
             return;
         }
 
+        // The canvas handed to onDraw is already translated by (-scrollX, -scrollY) and
+        // clipped to the visible content rect, so everything below is drawn in *content*
+        // coordinates: screen position + scroll offset. Subtracting the scroll again
+        // (screen coordinates) shifts the gutter by a whole scroll amount, which reads as
+        // "the numbers do not line up" and, once scrolled far enough, as an empty gutter.
+        int scrollX = getScrollX();
         int scrollY = getScrollY();
         int padTop = getCompoundPaddingTop();
-        int padLeft = getCompoundPaddingLeft();
 
         // --- current logical line background (behind text) ---
         int sel = getSelectionStart();
@@ -133,12 +138,14 @@ public class EditorEditText extends EditText {
         while (lastVis + 1 < layout.getLineCount() && !lineEndsWithNewline(layout, lastVis)) {
             lastVis++;
         }
-        float top = padTop + layout.getLineTop(firstVis) - scrollY;
-        float bottom = padTop + layout.getLineBottom(lastVis) - scrollY;
-        canvas.drawRect(0, top, getWidth(), bottom, lineBgPaint);
+        float top = padTop + layout.getLineTop(firstVis);
+        float bottom = padTop + layout.getLineBottom(lastVis);
+        canvas.drawRect(scrollX, top, scrollX + getWidth(), bottom, lineBgPaint);
 
         if (showLineNumbers && gutterWidth > 0) {
-            canvas.drawRect(0, 0, gutterWidth, getHeight(), gutterBgPaint);
+            // Stays pinned to the left edge of the viewport at any scroll offset.
+            canvas.drawRect(scrollX, scrollY, scrollX + gutterWidth, scrollY + getHeight(),
+                    gutterBgPaint);
         }
 
         super.onDraw(canvas);
@@ -148,7 +155,7 @@ public class EditorEditText extends EditText {
             return;
         }
         int firstDrawn = layout.getLineForVertical(scrollY - padTop);
-        int lastDrawn = layout.getLineForVertical(scrollY - padTop + (getHeight() - padTop));
+        int lastDrawn = layout.getLineForVertical(scrollY + getHeight() - padTop);
         lastDrawn = Math.min(lastDrawn, layout.getLineCount() - 1);
 
         // Start the incremental newline count from the first visible logical line.
@@ -173,15 +180,16 @@ public class EditorEditText extends EditText {
                 continue; // wrapped continuation of the same logical line
             }
             prevLogical = logical;
-            float y = padTop + layout.getLineTop(v) - scrollY;
-            if (y + textH < 0 || y > getHeight()) {
+            // Take the y straight from the layout's own baseline, i.e. exactly where the
+            // text of this row is drawn, so the number can never drift from its line.
+            float baseline = padTop + layout.getLineBaseline(v);
+            if (baseline + textH < scrollY || baseline - textH > scrollY + getHeight()) {
                 continue;
             }
             String num = String.valueOf(logical + 1);
             boolean current = v >= firstVis && v <= lastVis;
             Paint p = current ? currentNumPaint : lineNumPaint;
-            p.setTextSize(lineNumPaint.getTextSize());
-            canvas.drawText(num, gutterWidth - dp(4), y + textH * 0.8f, p);
+            canvas.drawText(num, scrollX + gutterWidth - dp(4), baseline, p);
         }
     }
 
