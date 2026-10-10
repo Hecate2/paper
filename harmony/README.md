@@ -30,12 +30,20 @@ Stage 模型 + ArkTS + ArkUI，与安卓版同仓库、分目录存放。
    - 拿到持久化授权（`fileShare.persistPermission`）的 URI 会被记住，
      下次启动可直接 reopen（对应“记住上次打开的文件”）。
 2. **行号栏与当前行高亮**：安卓版是 `EditText` 自绘；ArkUI 的 `TextArea`
-   不支持自绘，只能用“左侧行号列 + 右侧 TextArea”的近似实现，
-   超大文本的只读预览用 `List` + 懒加载实现虚拟化（见 `pages/Index.ets` 注释）。
-3. **编码**：`util.TextDecoder/TextEncoder` 支持 UTF-8 / GBK / Big5 /
+   不支持自绘，可编辑区改用底部状态条“共 N 行 · 第 K 行”（K 由
+   `onTextSelectionChange` 实时跟随光标），行号开关控制其显隐；
+   超大文本的只读预览用 `List` + 懒加载实现虚拟化，左侧仍是行号列，
+   查找命中按行底色标出（当前命中绿、其余黄，见 `refreshViewerMarks`），
+   对应安卓 `VirtualTextView` 的区间底色（Text 不支持区间背景，按行近似）。
+3. **查找高亮**：可编辑区（TextArea）不支持区间底色，只显示计数并
+   用 `setTextSelection` 选中当前命中；只读预览有按行高亮（上一项）。
+4. **自动换行**：ArkUI 的 `TextArea` 恒为软换行（没有横向滚动开关），
+   因此「自动换行」设置只作用于只读预览的列表；设置页标签也写明了
+   “（只读预览）”。
+5. **编码**：`util.TextDecoder/TextEncoder` 支持 UTF-8 / GBK / Big5 /
    UTF-16LE-BE / Latin-1 等；`GB18030` 映射到 `gb18030`，运行环境不支持时
    回退 GBK（见 `core/EncodingDetector.ets`）。
-4. **不申请网络权限**：与安卓版一致，`module.json5` 里没有任何网络权限。
+6. **不申请网络权限**：与安卓版一致，`module.json5` 里没有任何网络权限。
 
 ## 目录结构
 
@@ -113,9 +121,9 @@ node run_core_tests.mjs
 
 1. 到 [HarmonyOS 应用开发者官网](https://developer.huawei.com/consumer/cn/)
    下载 **DevEco Studio** Mac 版（支持 Apple Silicon），拖进 `/Applications`。
-2. 首次启动：同意协议 → 选主题 → 向导自动引导下载 **HarmonyOS SDK**
-   （建议同时装 API 12 + API 13；本工程 target 为 `5.0.0(12)`）。
-   macOS 默认 SDK 路径：`~/Library/HarmonyOS/Sdk`。
+2. 首次启动：同意协议 → 选主题 → 向导自动引导下载 **HarmonyOS SDK**。
+   本工程用 DevEco 自带的 HarmonyOS 26.0.0 SDK 编译，
+   `compatibleSdkVersion` 写 `5.0.1(13)`，因此**无需额外下载旧版 SDK**。
 3. 如需命令行：下载中心的 **Command Line Tools** 解压后把
    `command-line-tools/bin` 加进 `PATH`，即得 `hvigorw` / `ohpm` / `hdc`。
 4. 模拟器：`Tools > Device Manager > New Emulator` 创建 Phone 镜像，
@@ -127,12 +135,30 @@ node run_core_tests.mjs
 
 - versionName `1.0.0` / versionCode `1000000`，bundleName
   `io.github.hecate2.paper`（与安卓 `applicationId` 相同）。
-- targetSdk `5.0.0(12)`，兼容到 `5.0.0(12)`。
+- 用 DevEco 自带 SDK（HarmonyOS 26.0.0 / API 26）编译，
+  `compatibleSdkVersion` 为 `5.0.1(13)`：HAP 的 `minAPIVersion=50001013`，
+  可直接安装到 HarmonyOS 5.0.1（API 13）模拟器。
+- `targetSdkVersion` 仍为 26.0.0（只影响目标行为，不影响安装）。
 
-## 首次在 DevEco 构建时的核对清单
+## 模拟器实测记录（HarmonyOS 5.0.1 / API 13，hdc + uitest 驱动）
 
-本工程在 Mac 上已用 `tsc --strict` 校验过全部 `core/*.ets`（零错误），
-用 Node 跑通 104 项单测，并已用 DevEco 26 命令行完整构建出 HAP
-（`entry-default-unsigned.hap`，约 431 KiB）。剩余 57 个 warning
-多为 `getContext` / `router.back`  deprecation，不影响构建，后续再迁移。
-真机/模拟器上的运行时验证（分享接收、Picker 授权、GBK 编解码）待补。
+已验证：
+
+- 构建、安装（`hdc install -r`）、冷启动后按设置恢复上次文件
+- 编辑后标题出现“ •”；状态条行号随光标/输入实时更新
+- 查找：查找栏开关/聚焦、计数（如 `1/1`）、命中跳转与选中
+- 系统返回键：先关查找栏；有未保存修改时弹「保存并关闭/不保存/取消」
+- “打开方式”/分享进来（`aa start -A ohos.want.action.viewData -U file://docs/…`）：
+  应用运行中收到 Want 经 `eventHub` 立即打开该 URI 文件
+- 只读预览：二进制文件进入只读模式，保存/重命名禁用，横幅提示正确，
+  行号列 + 查找命中行高亮（当前命中 `#554CAF50`）
+- 目录浏览器：单行名称+大小/时间、当前目录搜索（含 `.*` 正则开关）、
+  过滤底栏提示、清空按钮显示逻辑
+- 设置页：三个启动选项、记住行号、自动保存秒数、字号滑块、行号/换行开关、
+  默认编码下拉
+
+仍需真机/交互式验证（命令行无法覆盖）：
+
+- 系统 Picker 的 select/save 全流程与持久化授权（`persistPermission`）
+- 非 UTF-8（GBK/Big5 等）文件的读写往返、超 20 MB 大文件只读分层
+- 其他应用主动分享（`sendData`）的真机弹窗与参数形态

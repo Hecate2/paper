@@ -169,6 +169,8 @@ struct Index {
   private lineStartsCache: number[] | null = null;
   /** Ability 上下文：注册/注销运行中分享事件、返回退出时用。 */
   private abilityCtx: common.UIAbilityContext | null = null;
+  /** 只读预览的数据源（带命中行标记，见 LineDataSource）。 */
+  private viewerSource: LineDataSource = new LineDataSource([]);
 
   aboutToAppear(): void {
     const ctx = getContext(this) as common.UIAbilityContext;
@@ -421,6 +423,7 @@ struct Index {
     this.conflictNotified = false;
     this.pendingAfterSave = null;
     this.viewerLines = [];
+    this.viewerSource = new LineDataSource(this.viewerLines);
     this.viewerCapped = false;
     this.content = initialText === null ? '' : initialText;
     this.invalidateLines();
@@ -557,6 +560,7 @@ struct Index {
       this.content = text;
       this.invalidateLines();
       this.viewerLines = [];
+      this.viewerSource = new LineDataSource(this.viewerLines);
       this.caretLine = 0;
       setTimeout((): void => {
         try {
@@ -567,6 +571,7 @@ struct Index {
       }, 50);
     } else {
       this.viewerLines = splitCapped(text);
+      this.viewerSource = new LineDataSource(this.viewerLines);
       this.viewerCapped = this.viewerLines.length >= VIEWER_LINE_CAP;
       this.content = text;
       this.invalidateLines();
@@ -1030,6 +1035,7 @@ struct Index {
     this.matchWord = ww;
     this.matchIndex = result.length > 0 ? 0 : -1;
     this.matchInfo = (result.length > 0 ? 1 : 0) + '/' + result.length / 2;
+    this.refreshViewerMarks();
     if (this.matchIndex >= 0) {
       this.gotoMatch(0);
     }
@@ -1054,6 +1060,30 @@ struct Index {
     this.matchIndex = -1;
     this.matchQuery = '\u0000';
     this.matchInfo = '';
+    this.refreshViewerMarks();
+  }
+
+  /**
+   * 只读预览的命中标记：命中所在行标黄、当前命中行标绿。
+   * 安卓版在 VirtualTextView 里画字符区间底色；ArkUI 的 Text 不支持区间背景，
+   * 这里按“整行底色”近似（同样只标前 2000 处，与安卓上限一致）。
+   */
+  private refreshViewerMarks(): void {
+    if (!this.readOnly) {
+      return;
+    }
+    const marks: Map<number, number> = new Map<number, number>();
+    const total: number = this.matches.length / 2;
+    const cap: number = Math.min(total, 2000);
+    for (let i: number = 0; i < cap; i++) {
+      const line: number = lineOf(this.cachedLineStarts(), this.matches[i * 2]);
+      const kind: number = i === this.matchIndex ? 2 : 1;
+      const existing: number = marks.get(line) ?? 0;
+      if (kind === 2 || existing === 0) {
+        marks.set(line, kind);
+      }
+    }
+    this.viewerSource.setMarks(marks);
   }
 
   private gotoMatch(index: number): void {
@@ -1067,8 +1097,9 @@ struct Index {
     const end: number = this.matches[this.matchIndex * 2 + 1];
     this.caretLine = lineOf(this.cachedLineStarts(), start);
     if (this.readOnly) {
-      // 只读预览：滚到命中所在行（该行以当前行高亮标出）
+      // 只读预览：滚到命中所在行（当前命中行标绿，见 refreshViewerMarks）
       this.viewerScroller.scrollToIndex(Math.min(this.caretLine, this.viewerLines.length - 1));
+      this.refreshViewerMarks();
       return;
     }
     // 选中当前命中（对应安卓 setSelection(end, start)）
@@ -1177,6 +1208,7 @@ struct Index {
       this.invalidateLines();
       this.encoding = charset;
       this.viewerLines = this.readOnly ? splitCapped(this.content) : [];
+      this.viewerSource = new LineDataSource(this.viewerLines);
       this.clearMatches();
     } catch (e) {
       this.toast('打开失败：' + String(e));
@@ -1236,6 +1268,21 @@ struct Index {
 
   private hideLoading(): void {
     this.loading = false;
+  }
+
+  /** 预览行底色：当前命中行 > 命中行 > 当前行。 */
+  private rowBackground(index: number): ResourceColor {
+    const kind: number = this.viewerSource.markKind(index);
+    if (kind === 2) {
+      return $r('app.color.find_current');
+    }
+    if (kind === 1) {
+      return $r('app.color.find_highlight');
+    }
+    if (this.caretLine === index) {
+      return $r('app.color.current_line');
+    }
+    return '#00000000';
   }
 
   private encodingIndex(): number {
@@ -1439,7 +1486,7 @@ struct Index {
             });
         } else {
           List({ scroller: this.viewerScroller }) {
-            LazyForEach(new LineDataSource(this.viewerLines), (line: string, index: number) => {
+            LazyForEach(this.viewerSource, (line: string, index: number) => {
               ListItem() {
                 Row({ space: 8 }) {
                   if (this.showNumbers) {
@@ -1460,7 +1507,7 @@ struct Index {
                 }
                 .alignItems(VerticalAlign.Top)
                 .padding({ top: 1, bottom: 1 })
-                .backgroundColor(this.caretLine === index ? $r('app.color.current_line') : '#00000000')
+                .backgroundColor(this.rowBackground(index))
               }
             }, (line: string, index: number) => index.toString());
           }
@@ -1566,10 +1613,15 @@ async function importCharsetOf(data: Uint8Array, codecs: TextCodecs): Promise<st
   return 'GB18030';
 }
 
-/** LazyForEach 数据源（只读预览虚拟化：只渲染可视行）。 */
+/**
+ * LazyForEach 数据源（只读预览虚拟化：只渲染可视行）。
+ * 额外带一份“行 → 命中标记”（1 普通命中 / 2 当前命中），
+ * 变更时整表 reload，重渲染可视行即可（不逐行通知，避免上千次回调）。
+ */
 class LineDataSource implements IDataSource {
   private lines: string[];
   private listeners: DataChangeListener[] = [];
+  private marks: Map<number, number> = new Map<number, number>();
 
   constructor(lines: string[]) {
     this.lines = lines;
@@ -1581,6 +1633,18 @@ class LineDataSource implements IDataSource {
 
   getData(index: number): string {
     return this.lines[index];
+  }
+
+  /** 该行的命中标记：0 无 / 1 普通命中 / 2 当前命中。 */
+  markKind(index: number): number {
+    return this.marks.get(index) ?? 0;
+  }
+
+  setMarks(next: Map<number, number>): void {
+    this.marks = next;
+    for (const l of this.listeners) {
+      l.onDataReloaded();
+    }
   }
 
   registerDataChangeListener(listener: DataChangeListener): void {
