@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/banner_bg"
+        android:padding="8dp"
+        android:textColor="@color/banner_text"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/findBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="#FFF9F9F9">
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
+
+                <EditText
+                    android:id="@+id/findInput"
+                    android:layout_width="160dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/find_hint"
+                    android:inputType="text"
+                    android:imeOptions="actionSearch"
+                    android:importantForAutofill="no"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/findCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:textSize="13sp"
+                    android:textColor="#666666" />
+
+                <ImageButton
+                    android:id="@+id/findPrev"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/find_prev"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_chevron_up" />
+
+                <ImageButton
+                    android:id="@+id/findNext"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/find_next"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_chevron_down" />
+
+                <CheckBox
+                    android:id="@+id/findCase"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/find_case"
+                    android:textSize="12sp" />
+
+                <CheckBox
+                    android:id="@+id/findRegex"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/find_regex"
+                    android:textSize="12sp" />
+
+                <ImageButton
+                    android:id="@+id/findClose"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/find_close"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_close" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="4dp">
+
+                <EditText
+                    android:id="@+id/replaceInput"
+                    android:layout_width="160dp"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/replace_hint"
+                    android:inputType="text"
+                    android:importantForAutofill="no"
+                    android:textSize="14sp" />
+
+                <ImageButton
+                    android:id="@+id/replaceOne"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/find_replace_one"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_swap_horiz" />
+
+                <ImageButton
+                    android:id="@+id/replaceAll"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/find_replace_all"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_done_all" />
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <io.github.hecate2.paper.EditorEditText
+            android:id="@+id/editor"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:importantForAutofill="no"
+            android:scrollbars="vertical"
+            android:textSize="16sp" />
+
+        <io.github.hecate2.paper.VirtualTextView
+            android:id="@+id/viewer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>
