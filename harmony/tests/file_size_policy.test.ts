@@ -1,7 +1,7 @@
 /** FileSizePolicy 单测：与安卓版 FileSizePolicyTest 对应（阈值逐字对齐）。 */
 import {
-  EDIT_LIMIT, FULL_VIEW_LIMIT, HEAD_LIMIT,
-  tierFor, readLimit, allowsSave, readOnlyReason
+  EDIT_LIMIT, FULL_VIEW_LIMIT, HEAD_LIMIT, MAX_LINE_SPAN,
+  tierFor, readLimit, allowsSave, readOnlyReason, capLineSpan
 } from './.tmp_core/FileSizePolicy.ts';
 import { test, equal, isTrue, isFalse, type Suite } from './assert.ts';
 
@@ -42,6 +42,18 @@ export async function run(suite: Suite): Promise<void> {
     isTrue((readOnlyReason('readonly', false) as string).length > 0);
     isTrue((readOnlyReason('head', false) as string).indexOf('10') >= 0);
     isTrue((readOnlyReason('editable', true) as string).indexOf('二进制') >= 0);
+  });
+  await test(suite, 'longLinesAreCappedForViewing', () => {
+    equal(MAX_LINE_SPAN, 20000);
+    equal(capLineSpan('abc'), 'abc');
+    let long: string = '';
+    for (let i: number = 0; i < MAX_LINE_SPAN + 10; i++) {
+      long += 'x';
+    }
+    const capped: string = capLineSpan(long);
+    // 前 MAX_LINE_SPAN 字保留 + 短省略标记（内容本身永不改动，只影响显示）
+    equal(capped.substring(0, MAX_LINE_SPAN), long.substring(0, MAX_LINE_SPAN));
+    isTrue(capped.length < MAX_LINE_SPAN + 64);
   });
 }
 

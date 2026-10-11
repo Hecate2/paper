@@ -12,6 +12,11 @@ export const EDIT_LIMIT: number = 5 * 1024 * 1024;
 export const FULL_VIEW_LIMIT: number = 100 * 1024 * 1024;
 /** 头部预览读取上限 10MB。 */
 export const HEAD_LIMIT: number = 10 * 1024 * 1024;
+/**
+ * 单行显示上限（字符数）。超长单行（如压缩后的 JSON 一行几 MB）在 UI 线程
+ * 排版会卡死，超出部分不显示（对应安卓 VirtualTextView.MAX_LINE_SPAN）。
+ */
+export const MAX_LINE_SPAN: number = 20000;
 
 /** editable=可编辑，readonly=只读全量，head=仅头部预览。 */
 export type Tier = 'editable' | 'readonly' | 'head';
@@ -43,6 +48,14 @@ export function readLimit(tier: Tier, sizeBytes: number): number {
 /** 该分层是否允许保存回原文件。 */
 export function allowsSave(tier: Tier): boolean {
   return tier === 'editable';
+}
+
+/** 截断超长单行，超出部分用省略标记代替（只读预览用，永不写回）。 */
+export function capLineSpan(line: string): string {
+  if (line.length <= MAX_LINE_SPAN) {
+    return line;
+  }
+  return line.substring(0, MAX_LINE_SPAN) + '…（行过长，仅显示前 ' + MAX_LINE_SPAN + ' 字）';
 }
 
 /** 禁用保存时横幅里给用户看的原因；可保存时返回 null。 */

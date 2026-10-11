@@ -15,7 +15,7 @@ import {
   labelOf, isAuto
 } from '../core/EncodingDetector.ets';
 import {
-  tierFor, readLimit, allowsSave, readOnlyReason, FULL_VIEW_LIMIT, HEAD_LIMIT
+  tierFor, readLimit, allowsSave, readOnlyReason, FULL_VIEW_LIMIT, HEAD_LIMIT, capLineSpan
 } from '../core/FileSizePolicy.ets';
 import { defaultFileName, sanitize, ensureTxtExtension, parentOf } from '../core/SaveNames.ets';
 import { decide } from '../core/StartupDecision.ets';
@@ -2023,11 +2023,9 @@ function baseName(path: string): string {
 }
 
 function splitCapped(text: string): string[] {
-  const lines: string[] = text.split('\n');
-  if (lines.length > VIEWER_LINE_CAP) {
-    return lines.slice(0, VIEWER_LINE_CAP);
-  }
-  return lines;
+  const raw: string[] = text.split('\n');
+  const kept: string[] = raw.length > VIEWER_LINE_CAP ? raw.slice(0, VIEWER_LINE_CAP) : raw;
+  return kept.map((line: string): string => capLineSpan(line));
 }
 
 async function importCharsetOf(data: Uint8Array, codecs: TextCodecs): Promise<string> {
