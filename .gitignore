@@ -33,3 +33,7 @@ harmony/tools/parity/out/
 # 对比查看器（内嵌 base64 截图，按需生成）
 harmony/tools/parity/shot.html
 harmony/tools/parity/shot_crop.html
+
+# 外部工具杂物
+.freebuff/
+**/__pycache__/
