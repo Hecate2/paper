@@ -257,6 +257,24 @@ struct Browser {
     router.back();
   }
 
+  /** pickDir 模式：经系统保存面板拿一个可写 URI，返回后由编辑器写它。 */
+  private async pickSaveArbitrary(): Promise<void> {
+    const f: FileService | null = this.files;
+    if (f === null) {
+      return;
+    }
+    const name: string = AppStorage.get<string>('paperSaveName') ?? '';
+    try {
+      const uris: string[] = await f.pickSave(name === '' ? 'untitled.txt' : name);
+      if (uris.length > 0) {
+        AppStorage.setOrCreate('paperSaveUri', uris[0]);
+        router.back();
+      }
+    } catch (e) {
+      // 用户取消：留在浏览器，不返回编辑器
+    }
+  }
+
   private async pickArbitrary(): Promise<void> {
     const f: FileService | null = this.files;
     if (f === null) {
@@ -563,6 +581,26 @@ struct Browser {
         .id('browserArbitrary')
         .onClick((): void => {
           this.pickArbitrary();
+        });
+      }
+
+      // 选择目录模式的兼底入口：沙箱外的保存位置只能经系统保存面板拿到
+      // （安卓可直接写真路径，鸿蒙没有该权限）。样式与照上面的脚注行一致。
+      if (this.pickMode) {
+        Row() {
+          Text('任意位置…（系统面板）')
+            .fontSize(15)
+            .fontColor($r('app.color.brand'))
+            .maxLines(1)
+            .layoutWeight(1)
+            .textAlign(TextAlign.Start);
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 44 })
+        .padding({ left: 12, right: 12, top: 12, bottom: 12 })
+        .id('browserArbitrarySave')
+        .onClick((): void => {
+          this.pickSaveArbitrary();
         });
       }
     }.width('100%').height('100%').backgroundColor($r('app.color.page_bg'));

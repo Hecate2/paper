@@ -47,71 +47,209 @@ const VIEWER_LINE_CAP: number = 50000;
 const DOMAIN: number = 0xFF00;
 const TAG: string = 'PaperIndex';
 
+/**
+ * 对话框实测基准（安卓 API 30 / density 2.75，monospace/字段逐项对齐）：
+ * 面板宽 340.4dp，窗口 372.4dp（两侧各 10.15dp）；标题行高 45.1dp、标题 20sp、
+ * 左缩 24dp、底对齐（文字底边 = 标题行底边）；自定义内容左缩 20dp、顶部 8dp；
+ * 按钮区 62.2dp = 4 + 54.2 + 4，按钮 54.2 高、最小宽 64dp、相邻、右缩 12dp、
+ * 14sp accent 文字。
+ */
+const DLG_PANEL_W: number = 340.4;
+const DLG_PAD: number = 16;
+const DLG_TITLE_ROW: number = 45.1;
+const DLG_BTN_ROW: number = 62.2;
+const DLG_BTN_H: number = 54.2;
+const DLG_BTN_MIN_W: number = 64;
+
+/** 对话框按钮（安卓 AlertDialog：无背景、accent 14sp、52×54 圆角 2）。 */
+@Builder
+function DialogButton(label: string, id: string, onTap: () => void) {
+  Button(label, { type: ButtonType.Normal, stateEffect: true })
+    .fontSize(14)
+    .fontColor($r('app.color.brand'))
+    .backgroundColor('#00000000')
+    .borderRadius(2)
+    .height(DLG_BTN_H)
+    .constraintSize({ minWidth: DLG_BTN_MIN_W })
+    // 安卓实测：非等宽按钮 = 文字宽 + 2×12dp（取消 64、不保存 66.5、保存并关闭 94.9）
+    .padding({ left: 12, right: 12 })
+    .id(id)
+    .onClick(onTap);
+}
+
 @CustomDialog
 struct SaveDialogContent {
   controller?: CustomDialogController;
   fileName: string = '';
   dirPath: string = '';
   onBrowse: (name: string) => void = (name: string): void => {};
-  onSystem: (name: string) => void = (name: string): void => {};
   onOk: (name: string) => void = (name: string): void => {};
 
   build() {
-    Column({ space: 8 }) {
-      Text('保存文件').fontSize(18).fontWeight(FontWeight.Bold);
-      // 对齐 dialog_save.xml：文件名输入 + [保存到：][目录][浏览图标]
-      TextInput({ placeholder: '文件名（默认 .txt）', text: this.fileName })
-        .fontSize(16)
-        .onChange((v: string): void => {
-          this.fileName = v;
-        });
-      Row({ space: 0 }) {
-        Text('保存到：').fontSize(14);
-        Text(this.dirPath === '' ? '（未选择）' : this.dirPath)
-          .fontSize(13)
-          .fontColor('#FF444444')
-          .layoutWeight(1)
-          .maxLines(1)
+    Column({ space: 0 }) {
+      // 标题行：高 45.1、20sp、左缩 24、底对齐
+      Row() {
+        Text('保存文件')
+          .fontSize(20)
+          .fontColor('#FF212121')
+          .maxLines(1);
+      }
+      .width('100%')
+      .height(DLG_TITLE_ROW)
+      .padding({ left: 24 })
+      .alignItems(VerticalAlign.Bottom);
+      // 自定义内容：左缩 20、顶部 8（= dialog_save.xml 的 padding）
+      Column({ space: 0 }) {
+        TextInput({ placeholder: '文件名（默认 .txt）', text: this.fileName })
+          .fontSize(16)
+          .height(42.2)
+          .padding({ left: 0, right: 0 })
+          .backgroundColor('#00000000')
+          .borderRadius(0)
+          .borderWidth({ bottom: 1 })
+          .borderColor({ bottom: '#FF9E9E9E' })
+          .id('saveNameInput')
+          .onChange((v: string): void => {
+            this.fileName = v;
+          });
+        // [保存到：][目录…][40dp 文件夹按钮]——行高 40、行顶部距输入框底 12
+        Row({ space: 0 }) {
+          Text('保存到：').fontSize(14).fontColor('#DE000000');
+          Text(this.dirPath === '' ? '（未选择）' : this.dirPath)
+            .fontSize(13)
+            .fontColor('#FF444444')
+            .layoutWeight(1)
+            .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis });
-        Image($r('app.media.ic_folder_open_b'))
-          .width(24)
-          .height(24)
-          .margin(8)
+          Column() {
+            Image($r('app.media.ic_folder_open_b')).width(24).height(24);
+          }
+          .width(40)
+          .height(40)
+          .justifyContent(FlexAlign.Center)
           .id('saveBrowse')
           .onClick((): void => {
             const n: string = this.fileName;
             this.controller?.close();
             this.onBrowse(n);
           });
-      }.width('100%');
-      // 对话框按钮统一用文字样式（同安卓 AlertDialog），“其他位置…”走系统面板
-      Row({ space: 4 }) {
-        Button('其他位置…')
-          .fontColor($r('app.color.brand'))
-          .backgroundColor('#00000000')
-          .onClick((): void => {
-            const n: string = this.fileName;
-            this.controller?.close();
-            this.onSystem(n);
-          });
-        Button('取消')
-          .fontColor($r('app.color.brand'))
-          .backgroundColor('#00000000')
-          .id('saveCancel')
-          .onClick((): void => {
-            this.controller?.close();
-          });
-        Button('保存')
-          .fontColor($r('app.color.brand'))
-          .backgroundColor('#00000000')
-          .id('saveOk')
-          .onClick((): void => {
-            const n: string = this.fileName;
-            this.controller?.close();
-            this.onOk(n);
-          });
-      }.justifyContent(FlexAlign.End).width('100%');
-    }.padding(20).width('90%');
+        }
+        .width('100%')
+        .height(40)
+        .margin({ top: 12 });
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: 8 });
+      // 按钮区：安卓 AlertDialog 只有两个按钮（取消 / 保存）
+      Row({ space: 0 }) {
+        DialogButton('取消', 'saveCancel', (): void => {
+          this.controller?.close();
+        });
+        DialogButton('保存', 'saveOk', (): void => {
+          const n: string = this.fileName;
+          this.controller?.close();
+          this.onOk(n);
+        });
+      }
+      .width('100%')
+      .height(DLG_BTN_ROW)
+      .padding({ right: 12, top: 4, bottom: 4 })
+      .justifyContent(FlexAlign.End);
+    }
+    .width(DLG_PANEL_W + DLG_PAD * 2)
+    .backgroundColor('#FFFFFFFF')
+    .borderRadius(2);
+  }
+}
+
+/** 消息对话框的一个按钮（label + 动作）；中性/否定/肯定三种位置对应安卓
+ * neutral / negative / positive，Material 下中性按钮单独靠左，其余两个靠右。 */
+class DialogButtonSpec {
+  label: string;
+  action: () => void;
+
+  constructor(label: string, action: () => void) {
+    this.label = label;
+    this.action = action;
+  }
+}
+
+/**
+ * 消息对话框（安卓 Material AlertDialog 的 1:1 复刻：共用上面量到的对话框几何）。
+ * 标题可省略（安卓只 setMessage 不 setTitle 时顶部直接是正文，无标题行、无 8dp 分隔带）。
+ */
+@CustomDialog
+struct MessageDialogContent {
+  controller?: CustomDialogController;
+  title: string = '';
+  message: string = '';
+  neutralLabel: string = '';
+  neutralAction: () => void = (): void => {};
+  negativeLabel: string = '';
+  negativeAction: () => void = (): void => {};
+  positiveLabel: string = '';
+  positiveAction: () => void = (): void => {};
+
+  build() {
+    Column({ space: 0 }) {
+      if (this.title !== '') {
+        Row() {
+          Text(this.title).fontSize(20).fontColor('#FF212121').maxLines(2);
+        }
+        .width('100%')
+        .height(DLG_TITLE_ROW)
+        .padding({ left: 24 })
+        .alignItems(VerticalAlign.Bottom);
+        // 安卓 titleDividerNoCustom：8dp 高的分隔带（本主题下分割线不可见）
+        Row().width('100%').height(8);
+      }
+      // 正文行：总高 48dp（文字 16sp 顶对齐、左缩 24dp）
+      Column() {
+        Text(this.message)
+          .fontSize(16)
+          .fontColor('#DE000000')
+          .width('100%')
+          .maxLines(6)
+          .textOverflow({ overflow: TextOverflow.Ellipsis });
+      }
+      .width('100%')
+      .height(48)
+      .padding({ left: 24, right: 24 })
+      .alignItems(HorizontalAlign.Start);
+      // 按钮区：[neutral] …… [negative][positive]，两侧各缩 12dp、上下 4dp
+      Row({ space: 0 }) {
+        Row({ space: 0 }) {
+          if (this.neutralLabel !== '') {
+            DialogButton(this.neutralLabel, 'dlgNeutral', (): void => {
+              this.controller?.close();
+              this.neutralAction();
+            });
+          }
+        }
+        Row({ space: 0 }) {
+          if (this.negativeLabel !== '') {
+            DialogButton(this.negativeLabel, 'dlgNegative', (): void => {
+              this.controller?.close();
+              this.negativeAction();
+            });
+          }
+          if (this.positiveLabel !== '') {
+            DialogButton(this.positiveLabel, 'dlgPositive', (): void => {
+              this.controller?.close();
+              this.positiveAction();
+            });
+          }
+        }
+      }
+      .width('100%')
+      .height(DLG_BTN_ROW)
+      .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+      .justifyContent(FlexAlign.SpaceBetween);
+    }
+    .width(DLG_PANEL_W + DLG_PAD * 2)
+    .backgroundColor('#FFFFFFFF')
+    .borderRadius(2);
   }
 }
 
@@ -119,35 +257,69 @@ struct SaveDialogContent {
 struct RenameDialogContent {
   controller?: CustomDialogController;
   fileName: string = '';
+  dirPath: string = '';
   onOk: (name: string) => void = (name: string): void => {};
 
   build() {
-    Column({ space: 8 }) {
-      Text('重命名').fontSize(18).fontWeight(FontWeight.Bold);
-      TextInput({ placeholder: '新文件名', text: this.fileName })
-        .fontSize(16)
-        .onChange((v: string): void => {
-          this.fileName = v;
+    // 安卓重命名同样用 dialog_save.xml + 两个按钮，只是把 40dp 的文件夹图标
+    // 按钮设成 GONE（目录不可换），所以“保存到：”行只剩 19.3dp 高的文字。
+    Column({ space: 0 }) {
+      Row() {
+        Text('重命名')
+          .fontSize(20)
+          .fontColor('#FF212121')
+          .maxLines(1);
+      }
+      .width('100%')
+      .height(DLG_TITLE_ROW)
+      .padding({ left: 24 })
+      .alignItems(VerticalAlign.Bottom);
+      Column({ space: 0 }) {
+        TextInput({ placeholder: '新文件名', text: this.fileName })
+          .fontSize(16)
+          .height(42.2)
+          .padding({ left: 0, right: 0 })
+          .backgroundColor('#00000000')
+          .borderRadius(0)
+          .borderWidth({ bottom: 1 })
+          .borderColor({ bottom: '#FF9E9E9E' })
+          .id('renameNameInput')
+          .onChange((v: string): void => {
+            this.fileName = v;
+          });
+        Row({ space: 0 }) {
+          Text('保存到：').fontSize(14).fontColor('#DE000000');
+          Text(this.dirPath === '' ? '（未选择）' : this.dirPath)
+            .fontSize(13)
+            .fontColor('#FF444444')
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis });
+        }
+        .width('100%')
+        .margin({ top: 12 });
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: 8, bottom: 12 });
+      Row({ space: 0 }) {
+        DialogButton('取消', 'renameCancel', (): void => {
+          this.controller?.close();
         });
-      Row({ space: 4 }) {
-        Button('取消')
-          .fontColor($r('app.color.brand'))
-          .backgroundColor('#00000000')
-          .id('renameCancel')
-          .onClick((): void => {
-            this.controller?.close();
-          });
-        Button('保存')
-          .fontColor($r('app.color.brand'))
-          .backgroundColor('#00000000')
-          .id('renameOk')
-          .onClick((): void => {
-            const n: string = this.fileName;
-            this.controller?.close();
-            this.onOk(n);
-          });
-      }.justifyContent(FlexAlign.End).width('100%');
-    }.padding(20).width('90%');
+        DialogButton('保存', 'renameOk', (): void => {
+          const n: string = this.fileName;
+          this.controller?.close();
+          this.onOk(n);
+        });
+      }
+      .width('100%')
+      .height(DLG_BTN_ROW)
+      .padding({ right: 12, top: 4, bottom: 4 })
+      .justifyContent(FlexAlign.End);
+    }
+    .width(DLG_PANEL_W + DLG_PAD * 2)
+    .backgroundColor('#FFFFFFFF')
+    .borderRadius(2);
   }
 }
 
@@ -173,6 +345,34 @@ function BarIcon(icon: Resource, enabled: boolean, id: string, onTap: () => void
 /** 浅色弹出菜单/子菜单的文本色（安卓 primary_text_material_light / disabled 版）。 */
 const MENU_TEXT: string = '#DE000000';
 const MENU_TEXT_DISABLED: string = '#42000000';
+
+/**
+ * 菜单里的单选勾选框。安卓 Material 实测（density 2.75，弹层底色 #FAFAFA）：
+ * 可见方框 18.2dp、圆角 2dp，勾号（白色）墨迹 13.8×10.2dp、线宽 2.2dp、45° 折线；
+ * 未选中为 2dp 灰边（#8A000000 叠在 #FAFAFA 上 = #737373），选中为 accent 实心；
+ * 组件在外层 32×32 的格子里居中（右缩进 16dp）。
+ */
+@Builder
+function MenuCheckbox(checked: boolean) {
+  Column() {
+    Stack() {
+      if (checked) {
+        Image($r('app.media.ic_check_w')).width(18).height(18);
+      }
+    }
+    .width(18)
+    .height(18)
+    .borderRadius(2)
+    .backgroundColor(checked ? $r('app.color.brand') : '#00000000')
+    .border({
+      width: 2,
+      color: checked ? $r('app.color.brand') : '#FF737373'
+    });
+  }
+  .width(32)
+  .height(32)
+  .justifyContent(FlexAlign.Center);
+}
 
 /** 浅色界面上的深色图标按钮：安卓 borderless ImageButton 实测 36×36dp（图标 24dp 居中）。 */
 @Builder
@@ -330,6 +530,15 @@ struct Index {
         this.prefs?.recordDirectory(pickDir);
         this.openSaveDialog(pickDir, this.pendingSaveName, this.pendingAfterSave);
         this.pendingAfterSave = null;
+        return;
+      }
+      const saveUri: string = AppStorage.get<string>('paperSaveUri') ?? '';
+      if (saveUri !== '') {
+        // pickDir 浏览器里走了“任意位置…”（系统保存面板）：直接写这个 URI
+        AppStorage.setOrCreate('paperSaveUri', '');
+        const after: (() => void) | null = this.pendingAfterSave;
+        this.pendingAfterSave = null;
+        this.writeToPickedUri(saveUri, after);
       }
     } catch (e) {
       // ignore
@@ -687,22 +896,12 @@ struct Index {
         if (st !== null && this.lastKnownMtime > 0 && st.mtimeMs !== this.lastKnownMtime) {
           const target: string = this.fileKey;
           const next: (() => void) | null = after;
-          AlertDialog.show({
-            title: '关闭文件',
-            message: '这个文件已被其他程序修改。仍要覆盖吗？',
-            autoCancel: false,
-            alignment: DialogAlignment.Center,
-            primaryButton: {
-              value: '保存',
-              action: (): void => {
-                this.writeToPath(target, true, next);
-              }
-            },
-            secondaryButton: {
-              value: '取消',
-              action: (): void => {}
-            }
-          });
+          // 安卓：只有 message + 保存/取消，无标题
+          this.askDialog('', '这个文件已被其他程序修改。仍要覆盖吗？', null,
+            new DialogButtonSpec('取消', (): void => {}),
+            new DialogButtonSpec('保存', (): void => {
+              this.writeToPath(target, true, next);
+            }));
           return;
         }
         this.writeToPath(this.fileKey, true, after);
@@ -740,36 +939,39 @@ struct Index {
     });
   }
 
+  /** 统一的 Material 消息对话框（安卓 AlertDialog 的 1:1 复刻）。 */
+  private askDialog(title: string, message: string, neutral: DialogButtonSpec | null,
+    negative: DialogButtonSpec | null, positive: DialogButtonSpec | null): void {
+    const dlg: CustomDialogController = new CustomDialogController({
+      builder: MessageDialogContent({
+        title: title,
+        message: message,
+        neutralLabel: neutral !== null ? neutral.label : '',
+        neutralAction: neutral !== null ? neutral.action : (): void => {},
+        negativeLabel: negative !== null ? negative.label : '',
+        negativeAction: negative !== null ? negative.action : (): void => {},
+        positiveLabel: positive !== null ? positive.label : '',
+        positiveAction: positive !== null ? positive.action : (): void => {}
+      }),
+      autoCancel: false,
+      customStyle: true,
+      alignment: DialogAlignment.Center
+    });
+    dlg.open();
+  }
+
   private confirmDiscardThen(next: () => void): void {
     if (!this.dirty) {
       next();
       return;
     }
-    AlertDialog.show({
-      title: '关闭文件',
-      message: '当前文件有未保存的修改',
-      autoCancel: false,
-      alignment: DialogAlignment.Center,
-      buttons: [
-        {
-          value: '保存并关闭',
-          action: (): void => {
-            this.pendingAfterSave = next;
-            this.actionSave();
-          }
-        },
-        {
-          value: '不保存',
-          action: (): void => {
-            next();
-          }
-        },
-        {
-          value: '取消',
-          action: (): void => {}
-        }
-      ]
-    });
+    this.askDialog('关闭文件', '当前文件有未保存的修改',
+      new DialogButtonSpec('取消', (): void => {}),
+      new DialogButtonSpec('不保存', next),
+      new DialogButtonSpec('保存并关闭', (): void => {
+        this.pendingAfterSave = next;
+        this.actionSave();
+      }));
   }
 
   private actionRename(): void {
@@ -789,11 +991,15 @@ struct Index {
     const dlg: CustomDialogController = new CustomDialogController({
       builder: RenameDialogContent({
         fileName: baseName(src),
+        dirPath: parentOf(src),
         onOk: (name: string): void => {
           this.doRename(src, name);
         }
       }),
       autoCancel: false,
+      // customStyle：用自绘面板（白底、2dp 圆角、372.4dp 宽）替代系统对话框外壳，
+      // 才能和安卓 Material AlertDialog 的边框/内距逐项一致。
+      customStyle: true,
       alignment: DialogAlignment.Center
     });
     dlg.open();
@@ -857,18 +1063,17 @@ struct Index {
         onBrowse: (current: string): void => {
           this.pendingSaveName = current;
           this.pendingAfterSave = after;
+          AppStorage.setOrCreate('paperSaveName', current);
           AppStorage.setOrCreate('paperBrowserStart', dir);
           AppStorage.setOrCreate('paperBrowserMode', 'pickDir');
           router.pushUrl({ url: 'pages/Browser' });
-        },
-        onSystem: (current: string): void => {
-          this.saveToArbitraryLocation(current, after);
         },
         onOk: (inputName: string): void => {
           this.commitSave(dir, inputName, after);
         }
       }),
       autoCancel: false,
+      customStyle: true,
       alignment: DialogAlignment.Center
     });
     dlg.open();
@@ -893,50 +1098,29 @@ struct Index {
     }
     const target: string = (dir === '' ? '' : dir + '/') + name;
     if (await f.isFile(target)) {
-      AlertDialog.show({
-        title: '保存文件',
-        message: '文件已存在，是否覆盖？',
-        autoCancel: false,
-        alignment: DialogAlignment.Center,
-        primaryButton: {
-          value: '保存',
-          action: (): void => {
-            this.writeToPath(target, true, after);
-          }
-        },
-        secondaryButton: {
-          value: '取消',
-          action: (): void => {}
-        }
-      });
+      // 安卓：只有 message + 保存/取消，无标题
+      this.askDialog('', '文件已存在，是否覆盖？', null,
+        new DialogButtonSpec('取消', (): void => {}),
+        new DialogButtonSpec('保存', (): void => {
+          this.writeToPath(target, true, after);
+        }));
       return;
     }
     this.writeToPath(target, true, after);
   }
 
-  /** 经系统保存面板存到沙箱外任意位置（对应安卓“保存到任意真实路径”）。 */
-  private async saveToArbitraryLocation(rawName: string, after: (() => void) | null): Promise<void> {
-    let name: string = sanitize(rawName);
-    if (name === '') {
-      this.toast('请输入文件名');
-      return;
-    }
-    if (name.lastIndexOf('.') <= 0) {
-      name = ensureTxtExtension(name);
-    }
+  /**
+   * 写进系统面板选定的 URI（沙箱外任意位置）。安卓版靠“真目录”写任意路径，
+   * 鸿蒙只能经 Picker 拿授权 URI，所以入口放在 pickDir 浏览器的脚注行（与现有
+   * “任意文件…”同风格），保存对话框本身与安卓一样只有“文件夹图标 + 保存/取消”。
+   */
+  private async writeToPickedUri(uri: string, after: (() => void) | null): Promise<void> {
     const f: FileService | null = this.files;
     if (f === null) {
       return;
     }
-    try {
-      const uris: string[] = await f.pickSave(name);
-      if (uris.length > 0) {
-        await f.persistPermission(uris[0]);
-        this.writeToPath(uris[0], true, after);
-      }
-    } catch (e) {
-      this.toast('未选择保存位置');
-    }
+    await f.persistPermission(uri);
+    this.writeToPath(uri, true, after);
   }
 
   /** 唯一写盘路径（手动/另存/自动保存都走这里）。 */
@@ -1036,31 +1220,21 @@ struct Index {
       this.toast('没有找到备份文件');
       return;
     }
-    AlertDialog.show({
-      title: '恢复备份',
-      message: '用 .bak 备份覆盖当前文件？',
-      autoCancel: false,
-      alignment: DialogAlignment.Center,
-      primaryButton: {
-        value: '保存',
-        action: (): void => {
-          const fs: FileService | null = this.files;
-          if (fs === null) {
-            return;
-          }
-          const target: string = key;
-          restoreFromBackup(fs.atomic(), target).then((): void => {
-            this.openPath(target, -1);
-          }).catch((e: BusinessError): void => {
-            this.toast('保存失败：' + String(e));
-          });
-        }
-      },
-      secondaryButton: {
-        value: '取消',
-        action: (): void => {}
+    // 安卓：只有 message + 保存/取消，无标题
+    const positive: DialogButtonSpec = new DialogButtonSpec('保存', (): void => {
+      const fs: FileService | null = this.files;
+      if (fs === null) {
+        return;
       }
+      const target: string = key;
+      restoreFromBackup(fs.atomic(), target).then((): void => {
+        this.openPath(target, -1);
+      }).catch((e: BusinessError): void => {
+        this.toast('保存失败：' + String(e));
+      });
     });
+    this.askDialog('', '用 .bak 备份覆盖当前文件？', null,
+      new DialogButtonSpec('取消', (): void => {}), positive);
   }
 
   // ---- 查找替换 ----
@@ -1409,10 +1583,12 @@ struct Index {
   overflowPopup() {
     Column({ space: 0 }) {
       if (this.overflowSubmenu) {
+        // 子菜单首行 = 父项自身：安卓实测 14sp、accent 蓝（框架对“已选中/父项”
+        // 标题用 colorAccent 渲染，字号取 small popup 的 14sp），左缩 16dp、行高 48dp。
         Row() {
           Text('编码 · ' + this.encoding)
-            .fontSize(16)
-            .fontColor(MENU_TEXT)
+            .fontSize(14)
+            .fontColor($r('app.color.brand'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .layoutWeight(1);
@@ -1428,12 +1604,7 @@ struct Index {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1);
-            Checkbox()
-              .select(this.encodingChoiceSelected(c))
-              .selectedColor($r('app.color.brand'))
-              .width(24)
-              .height(24)
-              .hitTestBehavior(HitTestMode.None);
+            MenuCheckbox(this.encodingChoiceSelected(c));
           }
           .width('100%')
           .height(48)
@@ -1502,12 +1673,14 @@ struct Index {
           }
         });
         Row() {
+          // 安卓实测：父项标题右缘距箭头左缘 8dp（title 视图 132dp = 196-16-16-24-8）
           Text('编码 · ' + this.encoding)
             .fontSize(16)
             .fontColor(MENU_TEXT)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1);
+            .layoutWeight(1)
+            .margin({ right: 8 });
           Image($r('app.media.ic_submenu_arrow')).width(24).height(24);
         }
         .width('100%')
@@ -1613,8 +1786,10 @@ struct Index {
           .bindPopup(this.overflowOpen, {
             builder: this.overflowPopup,
             placement: Placement.BottomRight,
-            // 安卓弹出层右缘距屏右 3.4dp、顶边与图标格顶边齐（dropDownVerticalOffset 4dp）
-            offset: { x: 4, y: -48 },
+            // 安卓实测：弹出层顶边与顶栏图标格顶边齐（56.7dp = 栏顶 52.7 + 4dp 内缩），
+            // 右缘距屏右 4dp。ArkUI 的 BottomRight 会先留 8dp 默认间距，所以 y 要
+            // 再压回 -56dp；x=4 已顶到窗口右缘（阴影盒被裁在窗口内，实measure 3.1dp）。
+            offset: { x: 4, y: -56 },
             radius: 2,
             popupColor: '#FFFAFAFA',
             shadow: { radius: 16, color: '#33000000', offsetX: 0, offsetY: 4 },

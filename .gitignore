@@ -29,3 +29,7 @@ harmony/**/ohosTest/outputs/
 harmony/tests/.tmp/
 # e2e 脚本抓的截图（体积大，不入库）
 harmony/tests/e2e/shots/
+harmony/tools/parity/out/
+# 对比查看器（内嵌 base64 截图，按需生成）
+harmony/tools/parity/shot.html
+harmony/tools/parity/shot_crop.html
