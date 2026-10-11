@@ -85,11 +85,30 @@ export OHOS_BASE_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
 # @ohos:registry=https://repo.harmonyos.com/npm/
 
 # 3. 构建（--mode 指执行范围 module/project；debug 为默认 buildMode）
-hvigorw assembleHap --mode module    # 用 DevEco 自带的 hvigorw 全路径或 "$PATH" 里的
+hvigorw assembleHap --mode module                 # debug：带 sourceMap，约 549KB
+hvigorw assembleHap --mode module -p buildMode=release  # release：约 236KB，交付用这个
 ```
 
 产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`
-（debug 未签名，可直接装模拟器；release 签名后同目录）。
+（未签名，debug/release 同名，后一次构建会覆盖；release 签名后同目录）。
+
+## 安装包体积分析（2026-10-11 实测，release 未签名 HAP 236,187 B）
+
+解包构成（未压缩即此数，HAP 内文件均为 stored）：
+
+| 内容 | 大小 | 占比 | 说明 |
+|---|---|---|---|
+| `ets/modules.abc` | 195,376 B | 83% | Ark 字节码，零第三方依赖，全是本应用代码 |
+| `resources/base/media/app_icon.png` | 27,737 B | 12% | 192px 图标，已用 `tools/optpng.py` 无损压过（39KB→27KB） |
+| 20 个 SVG 图标 | 约 3.5KB | 1.5% | 平均 200B/个 |
+| `resources.index` / `module.json` / `pack.info` 等 | 约 6KB | 2.5% | 打包必需元数据 |
+
+结论：无冗余。`sourceMaps.map`（173KB）只出现在 debug 包；AppScope 与
+entry 的图标在包内只存一份；无 `oh_modules`、无构建中间物。
+和安卓（R8 后 APK 64KB）的差距主要来自 Ark 字节码本身更 verbose，
+鸿蒙侧没有 R8 可用，这已是实用下限（再压只能降图标分辨率，得不偿失）。
+debug 包 548,895 B（`modules.abc` 335KB + `sourceMaps.map` 173KB），
+仅用于调试，不交付。
 
 ```bash
 # 4. 安装到模拟器/真机（hdc 在 SDK toolchains 目录下）
@@ -156,9 +175,24 @@ node run_core_tests.mjs
   过滤底栏提示、清空按钮显示逻辑
 - 设置页：三个启动选项、记住行号、自动保存秒数、字号滑块、行号/换行开关、
   默认编码下拉
+- 保存全链路（字节级校验）：首次保存落盘内容正确；二次保存产生 `.bak`
+  且内容为上一版；同名保存弹覆盖确认，确认后文件/`.bak` 双双正确；
+  覆盖/关闭/恢复备份等确认框的按钮均可点、均可关
+- 异常路径（`tools/robust.py` A–J，一部分需可写沙箱，见下）：
+  已在真机逻辑 + 单测覆盖：退出删文件/删目录的回退（`StartupDecision`
+  99 项单测对应用例）、外部删除后保存重建、重命名冲突不覆盖、
+  二进制只读、无备份恢复提示、空文件名/非法字符拒绝
+
+大文件（2026-10-11）：`core` 单测里 2MB 查找约 2ms、20 万命中替换约
+17ms；5MB/100MB/10MB 三档分层阈值与安卓逐字一致；
+单行显示上限 20000 字（`MAX_LINE_SPAN`，与安卓 `VirtualTextView` 同值），
+超限只截显示、永不写回。真机 MB 级端到端压测脚本在
+`tests/e2e/growth.sh`（替换放大构造大文件），待模拟器空闲时跑。
 
 仍需真机/交互式验证（命令行无法覆盖）：
 
 - 系统 Picker 的 select/save 全流程与持久化授权（`persistPermission`）
-- 非 UTF-8（GBK/Big5 等）文件的读写往返、超 20 MB 大文件只读分层
+- 非 UTF-8（GBK/Big5 等）文件的读写往返（解码侧已单测，真机编码侧待验）
 - 其他应用主动分享（`sendData`）的真机弹窗与参数形态
+- 向沙箱注入超大文件的端到端（shell 写受限镜像上放不进去；
+  当前用 `growth.sh` 在应用内构造 MB 级内容测同链路）
