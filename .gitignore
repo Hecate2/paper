@@ -20,6 +20,9 @@ keystore.properties
 *.jks
 *.keystore
 
+# HarmonyOS 签名材料（含私钥与口令，由 tools/sign-release.sh 生成）
+harmony/signing/
+
 # HarmonyOS (harmony/ is the HarmonyOS NEXT port, hvigor-based)
 harmony/local.properties
 .hvigor/

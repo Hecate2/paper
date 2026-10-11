@@ -90,7 +90,8 @@ hvigorw assembleHap --mode module -p buildMode=release  # release：约 236KB，
 ```
 
 产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`
-（未签名，debug/release 同名，后一次构建会覆盖；release 签名后同目录）。
+（hvigor 只出未签名包，签名由下面的 `tools/sign-release.sh` 补做；
+debug/release 同名，后一次构建会覆盖）。
 
 ## 安装包体积分析（2026-10-11 实测，release 未签名 HAP 236,187 B）
 
@@ -111,14 +112,56 @@ debug 包 548,895 B（`modules.abc` 335KB + `sourceMaps.map` 173KB），
 仅用于调试，不交付。
 
 ```bash
-# 4. 安装到模拟器/真机（hdc 在 SDK toolchains 目录下）
+# 4. 签名（首次运行会自建签名材料，之后只做签名）
+bash tools/sign-release.sh
+
+# 5. 安装到模拟器/真机（hdc 在 SDK toolchains 目录下）
 hdc list targets
-hdc install entry/build/default/outputs/default/entry-default-unsigned.hap
+hdc install entry/build/default/outputs/default/entry-default-signed.hap
 hdc shell aa start -a EntryAbility -b io.github.hecate2.paper
 ```
 
-签名：在 DevEco 里 `File > Project Structure > Signing Configs` 配好后，
-`build-profile.json5` 的 `signingConfigs` 会自动填充；未签名也能出 debug 包。
+签名产物 `entry-default-signed.hap`（284,077 B，比未签名包大 47,890 B，
+即签名块本身）。debug 包也能签，只是文件名同样叫 `entry-default-signed.hap`，
+后一次构建会覆盖，所以交付前跑一次 release 构建再签。
+
+## 签名（为什么安卓那把钥匙不能用）
+
+鸿蒙只接受 ECDSA 签名。安卓的 `release.jks` 是 RSA-4096，官方签名工具直接拒绝：
+
+```
+$ java -jar hap-sign-tool.jar sign-app ... -signAlg SHA256withRSA ...
+ERROR: 11011002 {SignAlg} param is incorrect
+Error Message: signature algorithms include SHA256withECDSA,SHA384withECDSA
+```
+
+`generate-app-cert` 与 `generate-profile-cert` 同样只收 ECDSA。
+hvigor 的 `build-profile.json5` schema 里 `signAlg` 的 enum 也只有
+`SHA256withECDSA` 一个值。所以这把钥匙在鸿蒙侧没有任何可用路径，
+只能另建一套。
+
+`tools/sign-release.sh` 建的是三级链，跟 OpenHarmony 官方工具的默认结构一致：
+
+| 角色 | 算法 | 用途 |
+|---|---|---|
+| `root-ca` | RSA-4096 / SHA384withRSA | 自签根 |
+| `sub-app-ca` | RSA-4096 / SHA384withRSA | 应用签名中间 CA |
+| `sub-profile-ca` | RSA-4096 / SHA384withRSA | profile 签名中间 CA |
+| `app` | **ECC P-256 / SHA256withECDSA** | 应用签名密钥 |
+| `profile` | **ECC P-384 / SHA384withECDSA** | profile 签名密钥 |
+
+脚本还负责把应用证书和 `bundleName` 写进 profile 并签成 `.p7b`
+（hvigor 的 `signingConfigs` 也强制要求这个字段），
+最后自动跑一遍 `verify-app` 确认签名有效。
+`bundleName` 与 `compatibleVersion` 都从 `AppScope/app.json5`
+和 `build-profile.json5` 读，不写死在脚本里。
+
+材料落在 `harmony/signing/`，含私钥，已在 `.gitignore` 中。
+换机器或材料丢失时删掉该目录重跑脚本即可，会生成新的一套。
+
+需要上架 AppGallery 时，这套自签材料不能用，得换成华为开发者账号下发的
+正式签名材料（`.cer` + `.p7b`），脚本里替换 `app-release.cer`
+与 `profile.p7b` 两个文件即可。
 
 ## 纯逻辑单测（不需要 SDK，本机可跑）
 
